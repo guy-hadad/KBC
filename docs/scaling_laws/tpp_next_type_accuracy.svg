@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="520" viewBox="0 0 840 520">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="82" y="34" font-family="Arial" font-size="22" font-weight="700" fill="#111827">TPP Next-Type Accuracy</text>
+<text x="367.0" y="496" font-family="Arial" font-size="13" fill="#4b5563">training users, log2 scale</text>
+<text x="20" y="310.0" transform="rotate(-90 20,310.0)" font-family="Arial" font-size="13" fill="#4b5563">accuracy</text>
+<line x1="82" y1="442.00" x2="808" y2="442.00" stroke="#e5e7eb" stroke-width="1"/>
+<text x="72" y="446.00" font-family="Arial" font-size="12" text-anchor="end" fill="#6b7280">0.00362</text>
+<line x1="82" y1="346.00" x2="808" y2="346.00" stroke="#e5e7eb" stroke-width="1"/>
+<text x="72" y="350.00" font-family="Arial" font-size="12" text-anchor="end" fill="#6b7280">0.0613</text>
+<line x1="82" y1="250.00" x2="808" y2="250.00" stroke="#e5e7eb" stroke-width="1"/>
+<text x="72" y="254.00" font-family="Arial" font-size="12" text-anchor="end" fill="#6b7280">0.119</text>
+<line x1="82" y1="154.00" x2="808" y2="154.00" stroke="#e5e7eb" stroke-width="1"/>
+<text x="72" y="158.00" font-family="Arial" font-size="12" text-anchor="end" fill="#6b7280">0.177</text>
+<line x1="82" y1="58.00" x2="808" y2="58.00" stroke="#e5e7eb" stroke-width="1"/>
+<text x="72" y="62.00" font-family="Arial" font-size="12" text-anchor="end" fill="#6b7280">0.234</text>
+<rect x="82" y="58" width="726" height="384" fill="none" stroke="#9ca3af" stroke-width="1"/>
+<line x1="82.00" y1="442" x2="82.00" y2="448" stroke="#d1d5db" stroke-width="1"/>
+<text x="82.00" y="465" font-family="Arial" font-size="12" text-anchor="middle" fill="#374151">32</text>
+<line x1="324.00" y1="442" x2="324.00" y2="448" stroke="#d1d5db" stroke-width="1"/>
+<text x="324.00" y="465" font-family="Arial" font-size="12" text-anchor="middle" fill="#374151">64</text>
+<line x1="808.00" y1="442" x2="808.00" y2="448" stroke="#d1d5db" stroke-width="1"/>
+<text x="808.00" y="465" font-family="Arial" font-size="12" text-anchor="middle" fill="#374151">256</text>
+<polyline points="82.00,100.55 324.00,88.54 808.00,84.48" fill="none" stroke="#2563eb" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="82.00" cy="100.55" r="4.5" fill="#2563eb" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="324.00" cy="88.54" r="4.5" fill="#2563eb" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="808.00" cy="84.48" r="4.5" fill="#2563eb" stroke="#ffffff" stroke-width="1.5"/>
+<line x1="618" y1="66" x2="642" y2="66" stroke="#2563eb" stroke-width="3"/>
+<text x="650" y="70" font-family="Arial" font-size="13" fill="#111827">markov</text>
+<polyline points="82.00,415.52 324.00,366.75 808.00,265.95" fill="none" stroke="#dc2626" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="82.00" cy="415.52" r="4.5" fill="#dc2626" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="324.00" cy="366.75" r="4.5" fill="#dc2626" stroke="#ffffff" stroke-width="1.5"/>
+<circle cx="808.00" cy="265.95" r="4.5" fill="#dc2626" stroke="#ffffff" stroke-width="1.5"/>
+<line x1="618" y1="88" x2="642" y2="88" stroke="#dc2626" stroke-width="3"/>
+<text x="650" y="92" font-family="Arial" font-size="13" fill="#111827">pragma-tiny</text>
+</svg>

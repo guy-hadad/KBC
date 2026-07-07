@@ -1,0 +1,122 @@
+[
+  {
+    "accuracy": 0.8984375,
+    "auc": 0.9671226154695455,
+    "delta_log_rmse": null,
+    "method": "count-logistic",
+    "next_type_accuracy": null,
+    "samples": 32,
+    "split": "test",
+    "task": "classification"
+  },
+  {
+    "accuracy": null,
+    "auc": null,
+    "delta_log_rmse": 1.4147628502519802,
+    "method": "markov",
+    "next_type_accuracy": 0.20873549770888175,
+    "samples": 32,
+    "split": "test",
+    "task": "tpp"
+  },
+  {
+    "accuracy": 0.53515625,
+    "auc": 0.8778752376863154,
+    "delta_log_rmse": null,
+    "method": "pragma-tiny",
+    "next_type_accuracy": null,
+    "samples": 32,
+    "split": "test",
+    "task": "classification"
+  },
+  {
+    "accuracy": null,
+    "auc": null,
+    "delta_log_rmse": 1.5613102912902832,
+    "method": "pragma-tiny",
+    "next_type_accuracy": 0.01953125,
+    "samples": 32,
+    "split": "test",
+    "task": "tpp"
+  },
+  {
+    "accuracy": 0.8984375,
+    "auc": 0.9538121818070294,
+    "delta_log_rmse": null,
+    "method": "count-logistic",
+    "next_type_accuracy": null,
+    "samples": 64,
+    "split": "test",
+    "task": "classification"
+  },
+  {
+    "accuracy": null,
+    "auc": null,
+    "delta_log_rmse": 1.3970138458947492,
+    "method": "markov",
+    "next_type_accuracy": 0.21595008287023496,
+    "samples": 64,
+    "split": "test",
+    "task": "tpp"
+  },
+  {
+    "accuracy": 0.7109375,
+    "auc": 0.9930687603508557,
+    "delta_log_rmse": null,
+    "method": "pragma-tiny",
+    "next_type_accuracy": null,
+    "samples": 64,
+    "split": "test",
+    "task": "classification"
+  },
+  {
+    "accuracy": null,
+    "auc": null,
+    "delta_log_rmse": 1.5593695640563965,
+    "method": "pragma-tiny",
+    "next_type_accuracy": 0.048828125,
+    "samples": 64,
+    "split": "test",
+    "task": "tpp"
+  },
+  {
+    "accuracy": 0.90625,
+    "auc": 0.9768140832975526,
+    "delta_log_rmse": null,
+    "method": "count-logistic",
+    "next_type_accuracy": null,
+    "samples": 256,
+    "split": "test",
+    "task": "classification"
+  },
+  {
+    "accuracy": null,
+    "auc": null,
+    "delta_log_rmse": 1.3795302391288489,
+    "method": "markov",
+    "next_type_accuracy": 0.2183874427220435,
+    "samples": 256,
+    "split": "test",
+    "task": "tpp"
+  },
+  {
+    "accuracy": 0.93359375,
+    "auc": 0.9929460835429063,
+    "delta_log_rmse": null,
+    "method": "pragma-tiny",
+    "next_type_accuracy": null,
+    "samples": 256,
+    "split": "test",
+    "task": "classification"
+  },
+  {
+    "accuracy": null,
+    "auc": null,
+    "delta_log_rmse": 1.413577914237976,
+    "method": "pragma-tiny",
+    "next_type_accuracy": 0.109375,
+    "samples": 256,
+    "split": "test",
+    "task": "tpp"
+  }
+]

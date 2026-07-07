@@ -46,6 +46,7 @@ extract:
 
 scaling:
   output_dir: outputs/scaling_laws
+  publish_dir: docs/scaling_laws
   sample_sizes:
     - 32
     - 64

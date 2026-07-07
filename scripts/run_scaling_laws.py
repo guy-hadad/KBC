@@ -10,6 +10,7 @@ import csv
 import inspect
 import json
 import math
+import shutil
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
@@ -452,6 +453,22 @@ def _write_plots(output_dir: Path, rows: List[MetricRow]) -> List[Path]:
     return plot_paths
 
 
+def _publish_report(
+    publish_dir: Optional[str],
+    csv_path: Path,
+    markdown_path: Path,
+    json_path: Path,
+    plot_paths: List[Path],
+) -> Optional[Path]:
+    if not publish_dir:
+        return None
+    target = Path(to_absolute_path(str(publish_dir)))
+    target.mkdir(parents=True, exist_ok=True)
+    for source in [csv_path, markdown_path, json_path] + plot_paths:
+        shutil.copy2(source, target / source.name)
+    return target
+
+
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
     seed_everything(int(cfg.seed))
@@ -510,11 +527,19 @@ def main(cfg: DictConfig) -> None:
 
     csv_path = output_dir / "scaling_results.csv"
     markdown_path = output_dir / "scaling_results.md"
+    json_path = output_dir / "scaling_results.json"
     _write_csv(csv_path, rows)
     plot_paths = _write_plots(output_dir, rows)
     _write_markdown(markdown_path, rows, plot_paths)
-    with (output_dir / "scaling_results.json").open("w", encoding="utf-8") as handle:
+    with json_path.open("w", encoding="utf-8") as handle:
         json.dump(rows, handle, indent=2, sort_keys=True)
+    publish_dir = _publish_report(
+        publish_dir=cfg.scaling.get("publish_dir"),
+        csv_path=csv_path,
+        markdown_path=markdown_path,
+        json_path=json_path,
+        plot_paths=plot_paths,
+    )
 
     print(
         json.dumps(
@@ -523,6 +548,7 @@ def main(cfg: DictConfig) -> None:
                 "csv": str(csv_path),
                 "markdown": str(markdown_path),
                 "plots": [str(path) for path in plot_paths],
+                "publish_dir": None if publish_dir is None else str(publish_dir),
             },
             indent=2,
         )

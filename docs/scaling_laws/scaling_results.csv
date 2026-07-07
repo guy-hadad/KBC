@@ -1,0 +1,13 @@
+samples,task,method,split,accuracy,next_type_accuracy,delta_log_rmse
+32,classification,count-logistic,test,0.8984375,,
+32,tpp,markov,test,,0.20873549770888175,1.4147628502519802
+32,classification,pragma-tiny,test,0.53515625,,
+32,tpp,pragma-tiny,test,,0.01953125,1.5613102912902832
+64,classification,count-logistic,test,0.8984375,,
+64,tpp,markov,test,,0.21595008287023496,1.3970138458947492
+64,classification,pragma-tiny,test,0.7109375,,
+64,tpp,pragma-tiny,test,,0.048828125,1.5593695640563965
+256,classification,count-logistic,test,0.90625,,
+256,tpp,markov,test,,0.2183874427220435,1.3795302391288489
+256,classification,pragma-tiny,test,0.93359375,,
+256,tpp,pragma-tiny,test,,0.109375,1.413577914237976

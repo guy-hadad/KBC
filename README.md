@@ -75,7 +75,7 @@ With the local `KBC` conda environment used for verification:
 conda run -n KBC python scripts/run_scaling_laws.py
 ```
 
-This writes `scaling_results.csv`, `scaling_results.md`, and SVG plots under `outputs/scaling_laws`. The default uses `model=pragma_tiny`, six CPU-friendly epochs, and sample sizes `[32, 64, 256]`. For more meaningful curves, increase the budget:
+This writes full run artifacts under `outputs/scaling_laws` and publishes the GitHub-visible report files under `docs/scaling_laws`. The default uses `model=pragma_tiny`, six CPU-friendly epochs, and sample sizes `[32, 64, 256]`. For more meaningful curves, increase the budget:
 
 ```bash
 python scripts/run_scaling_laws.py scaling.sample_sizes='[128,256,512,1024]' scaling.neural_max_steps=100
@@ -102,7 +102,7 @@ They are CPU-friendly curves using `model=pragma_tiny`, sample sizes `[32, 64, 2
 | 256 | count-logistic | 0.9062 |
 | 256 | pragma-tiny | 0.9336 |
 
-![Classification accuracy](outputs/scaling_laws/classification_accuracy.svg)
+![Classification accuracy](docs/scaling_laws/classification_accuracy.svg)
 
 ### Temporal Point Process
 
@@ -117,9 +117,9 @@ They are CPU-friendly curves using `model=pragma_tiny`, sample sizes `[32, 64, 2
 
 For `delta_log_rmse`, lower is better.
 
-![TPP next-type accuracy](outputs/scaling_laws/tpp_next_type_accuracy.svg)
+![TPP next-type accuracy](docs/scaling_laws/tpp_next_type_accuracy.svg)
 
-![TPP log-time RMSE](outputs/scaling_laws/tpp_delta_log_rmse.svg)
+![TPP log-time RMSE](docs/scaling_laws/tpp_delta_log_rmse.svg)
 
 Pretrain the PRAGMA baseline:
 
