@@ -1,0 +1,4 @@
+name: classification
+num_labels: 2
+checkpoint_path: null
+freeze_backbone: false

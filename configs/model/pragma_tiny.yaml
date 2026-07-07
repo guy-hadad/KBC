@@ -1,0 +1,11 @@
+name: pragma_tiny
+hidden_size: 64
+intermediate_size: 128
+num_attention_heads: 2
+profile_num_hidden_layers: 1
+event_num_hidden_layers: 1
+history_num_hidden_layers: 1
+dropout: 0.1
+classifier_dropout: 0.1
+feature_position_vocab_size: 32
+time_encoding_frequencies: 16

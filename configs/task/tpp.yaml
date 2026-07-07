@@ -1,0 +1,5 @@
+name: tpp
+checkpoint_path: null
+min_prefix_events: 4
+max_prefixes_per_user: 16
+tpp_loss_weight: 0.2

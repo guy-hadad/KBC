@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eventfm"
+version = "0.1.0"
+description = "PRAGMA-style foundation models for typed event sequences."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "numpy>=1.23",
+  "torch>=2.1",
+  "transformers>=4.40",
+  "accelerate>=1.1",
+  "hydra-core>=1.3",
+  "omegaconf>=2.3",
+  "wandb>=0.16",
+  "datasets>=2.18",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "ruff>=0.5",
+]
+
+[tool.setuptools.packages.find]
+include = ["eventfm*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]

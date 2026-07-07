@@ -1,0 +1,67 @@
+defaults:
+  - data: synthetic
+  - model: pragma_tiny
+  - task: pretrain
+  - _self_
+
+seed: 13
+project_name: event-foundation-model
+
+training:
+  output_dir: outputs/${task.name}
+  resume_from_checkpoint: null
+  num_train_epochs: 3
+  max_steps: -1
+  learning_rate: 3.0e-4
+  weight_decay: 0.01
+  warmup_ratio: 0.05
+  optim: adamw_torch
+  per_device_train_batch_size: 32
+  per_device_eval_batch_size: 64
+  gradient_accumulation_steps: 1
+  logging_steps: 20
+  eval_steps: 100
+  save_steps: 100
+  save_total_limit: 2
+  fp16: false
+  bf16: false
+  use_cpu: true
+  disable_tqdm: false
+  dataloader_num_workers: 0
+  gradient_checkpointing: false
+
+logging:
+  wandb:
+    enabled: false
+    project: eventfm
+    entity: null
+    tags:
+      - synthetic
+      - pragma
+
+extract:
+  checkpoint_path: outputs/pretrain
+  split: test
+  output_path: outputs/embeddings/test_user_embeddings.npy
+
+scaling:
+  output_dir: outputs/scaling_laws
+  sample_sizes:
+    - 32
+    - 64
+    - 256
+  validation_users: 128
+  test_users: 256
+  include_classic: true
+  include_neural: true
+  neural_max_steps: -1
+  neural_num_train_epochs: 6
+  neural_batch_size: 32
+  tpp_loss_weight: 0.03
+  tpp_max_prefixes_per_user: 2
+  tpp_min_prefix_events: 4
+  save_models: false
+
+hydra:
+  run:
+    dir: outputs/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}

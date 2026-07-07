@@ -1,0 +1,11 @@
+name: pragma_s_paperish
+hidden_size: 192
+intermediate_size: 768
+num_attention_heads: 3
+profile_num_hidden_layers: 1
+event_num_hidden_layers: 5
+history_num_hidden_layers: 2
+dropout: 0.1
+classifier_dropout: 0.1
+feature_position_vocab_size: 32
+time_encoding_frequencies: 24

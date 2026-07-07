@@ -1,0 +1,6 @@
+name: pretrain
+mlm_probability: 0.15
+event_mask_probability: 0.10
+key_mask_probability: 0.10
+unk_probability: 0.10
+label_smoothing: 0.05
