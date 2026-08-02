@@ -3,7 +3,9 @@ from eventfm.data.tokenizer import EventTokenizer, EventVocabulary
 
 
 def test_synthetic_tokenizer_encodes_event_type_and_time_features():
-    sequence = generate_synthetic_sequences(num_users=1, num_event_types=50, min_events=8, max_events=8)[0]
+    sequence = generate_synthetic_sequences(
+        num_users=1, num_event_types=50, min_events=8, max_events=8
+    )[0]
     vocab = EventVocabulary.synthetic(num_event_types=50)
     tokenizer = EventTokenizer(vocab=vocab, max_features_per_event=8)
 

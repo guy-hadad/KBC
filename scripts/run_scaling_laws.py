@@ -34,7 +34,6 @@ from eventfm.models import (
 from eventfm.training.metrics import classification_metrics, tpp_metrics
 from eventfm.training.utils import prepare_wandb, seed_everything
 
-
 MetricRow = Dict[str, object]
 
 

@@ -5,8 +5,10 @@ __pycache__/
 .mypy_cache/
 .venv/
 venv/
-data/
-outputs/
+# Anchored to the repo root on purpose: an unanchored `data/` also matches the
+# `eventfm/data/` source package and would silently exclude it from the repo.
+/data/
+/outputs/
 wandb/
 *.egg-info/
 *.npy

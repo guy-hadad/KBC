@@ -1,4 +1,11 @@
-# Scaling Law Sweep
+# Scaling Law Sweep (superseded — synthetic data only)
+
+> **Superseded by [`docs/benchmark/`](../benchmark/).** This page is the earlier
+> sweep: one model (`pragma_tiny`) plus two controls, on the in-repo *synthetic*
+> generator, produced by `scripts/run_scaling_laws.py`. The current benchmark
+> covers every architecture in the project note across the four open banking
+> datasets, on real data. Kept for reference only; the numbers below are not
+> comparable to the current report.
 
 CPU-friendly sample-scaling sweep on the synthetic downstream tasks.
 

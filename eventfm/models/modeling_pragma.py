@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import Optional
 
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 from transformers import BertConfig, PreTrainedModel
 from transformers.modeling_outputs import MaskedLMOutput, ModelOutput, SequenceClassifierOutput
 from transformers.models.bert.modeling_bert import BertEncoder
@@ -24,10 +24,14 @@ class PragmaBackboneOutput(ModelOutput):
 
 @dataclass
 class NextEventPredictionOutput(ModelOutput):
+    """Field order matters: the Trainer hands non-loss fields to the metric
+    function positionally, and the shared TPP metrics expect
+    ``(type_logits, delta_log, time_nll)``."""
+
     loss: Optional[torch.FloatTensor] = None
     type_logits: torch.FloatTensor = None
     delta_log: torch.FloatTensor = None
-    embeddings: torch.FloatTensor = None
+    time_nll: Optional[torch.FloatTensor] = None
 
 
 def _encoder_config(config: PragmaConfig, num_hidden_layers: int) -> BertConfig:
@@ -397,13 +401,16 @@ class PragmaForNextEventPrediction(PragmaPreTrainedModel):
         delta_log = self.delta_head(embedding).squeeze(-1)
 
         loss = None
+        time_nll = None
         if next_event_type_labels is not None and next_delta_log is not None:
             type_loss = F.cross_entropy(type_logits, next_event_type_labels.long())
-            delta_loss = F.mse_loss(delta_log, next_delta_log.to(dtype=delta_log.dtype))
-            loss = type_loss + self.config.tpp_loss_weight * delta_loss
+            target = next_delta_log.to(dtype=delta_log.dtype)
+            # Per example, so the Trainer can concatenate it across batches.
+            time_nll = 0.5 * (delta_log - target) ** 2
+            loss = type_loss + self.config.tpp_loss_weight * time_nll.mean()
         return NextEventPredictionOutput(
             loss=loss,
             type_logits=type_logits,
             delta_log=delta_log,
-            embeddings=outputs.last_event_embedding,
+            time_nll=time_nll,
         )

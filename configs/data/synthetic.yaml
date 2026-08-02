@@ -1,0 +1,15 @@
+name: synthetic
+data_dir: data/synthetic
+train_path: ${data.data_dir}/train.jsonl
+validation_path: ${data.data_dir}/validation.jsonl
+test_path: ${data.data_dir}/test.jsonl
+vocab_path: ${data.data_dir}/vocab.json
+auto_generate: true
+
+num_users: 1000
+num_event_types: 50
+min_events: 16
+max_events: 64
+max_events_per_sequence: 128
+max_features_per_event: 8
+seed: ${seed}
