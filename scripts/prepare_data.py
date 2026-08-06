@@ -12,18 +12,32 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from eventfm.datasets import build_dataset, dataset_names  # noqa: E402
 from eventfm.datasets.paths import configure_hf_cache, processed_root  # noqa: E402
+from eventfm.datasets.registry import (  # noqa: E402
+    CHRONOLOGICAL_DATASETS,
+    GEM_DATASETS,
+    PRIMARY_DATASETS,
+    build_dataset,
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("datasets", nargs="*", default=None, help="dataset names (default: all)")
     parser.add_argument("--force", action="store_true", help="rebuild even if meta.json exists")
+    parser.add_argument(
+        "--paper",
+        action="store_true",
+        help="prepare primary, chronological, and external GEM datasets",
+    )
     args = parser.parse_args()
 
     configure_hf_cache()
-    names = args.datasets or [name for name in dataset_names() if name != "synthetic"]
+    names = args.datasets or list(
+        PRIMARY_DATASETS + CHRONOLOGICAL_DATASETS + GEM_DATASETS
+        if args.paper
+        else PRIMARY_DATASETS
+    )
     summary = {}
     for name in names:
         print("[prepare] {} ...".format(name), flush=True)

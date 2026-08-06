@@ -2,7 +2,7 @@
 
 import random
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from torch.utils.data import Dataset
 
@@ -29,6 +29,8 @@ class NextEventExample:
     sequence: EventSequence
     next_event_type: str
     next_delta_seconds: float
+    next_timestamp: Optional[float] = None
+    next_features: Optional[Dict[str, Any]] = None
 
 
 class NextEventJsonlDataset(Dataset):
@@ -66,6 +68,8 @@ class NextEventJsonlDataset(Dataset):
                         ),
                         next_event_type=next_event.event_type,
                         next_delta_seconds=delta,
+                        next_timestamp=float(next_event.timestamp),
+                        next_features=dict(next_event.features),
                     )
                 )
 

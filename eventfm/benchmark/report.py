@@ -72,6 +72,8 @@ class Record:
     method: str
     sample_size: int
     seed: int
+    regime: str
+    variant: str
     status: str
     metrics: Dict[str, float]
     wall_seconds: float
@@ -91,6 +93,8 @@ def load_results(results_dir: Path) -> List[Record]:
                 method=str(cell.get("method", "")),
                 sample_size=int(cell.get("sample_size", 0)),
                 seed=int(cell.get("seed", 0)),
+                regime=str(cell.get("regime", "full")),
+                variant=str(cell.get("variant", "default")),
                 status=str(payload.get("status", "unknown")),
                 metrics={
                     key: float(value)
@@ -118,6 +122,8 @@ def write_csv(records: Sequence[Record], path: Path) -> Path:
         "sample_size",
         "num_train_sequences",
         "seed",
+        "regime",
+        "variant",
         "status",
         "wall_seconds",
     ] + metric_keys
@@ -138,6 +144,8 @@ def write_csv(records: Sequence[Record], path: Path) -> Path:
                 "sample_size": record.sample_size,
                 "num_train_sequences": record.num_train_sequences,
                 "seed": record.seed,
+                "regime": record.regime,
+                "variant": record.variant,
                 "status": record.status,
                 "wall_seconds": round(record.wall_seconds, 2),
             }
@@ -174,12 +182,58 @@ def _mean_over_seeds(values: Sequence[float]) -> Optional[float]:
     return float(np.mean(clean)) if clean else None
 
 
+def _bootstrap_summary(
+    values: Sequence[float],
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """Deterministic percentile interval over independent seed-level results."""
+
+    clean = np.asarray(
+        [value for value in values if value is not None and not math.isnan(value)],
+        dtype=np.float64,
+    )
+    if not clean.size:
+        return None, None, None
+    mean = float(clean.mean())
+    if clean.size < 2:
+        return mean, None, None
+    rng = np.random.default_rng(20260806)
+    samples = rng.choice(clean, size=(10000, clean.size), replace=True).mean(axis=1)
+    lower, upper = np.quantile(samples, [0.025, 0.975])
+    return mean, float(lower), float(upper)
+
+
+def _metric_values_at(
+    records: Sequence[Record],
+    dataset: str,
+    task: str,
+    method: str,
+    metric: str,
+    size: int,
+    regime: str = "full",
+    variant: str = "default",
+) -> List[float]:
+    return [
+        record.metrics[metric]
+        for record in records
+        if record.dataset == dataset
+        and record.task == task
+        and record.method == method
+        and record.regime == regime
+        and record.variant == variant
+        and record.status == "ok"
+        and (record.num_train_sequences or record.sample_size) == size
+        and metric in record.metrics
+    ]
+
+
 def series_for(
     records: Sequence[Record],
     dataset: str,
     task: str,
     method: str,
     metric: str,
+    regime: str = "full",
+    variant: str = "default",
 ) -> List[Tuple[int, float]]:
     """Metric against training-set size, averaged over seeds."""
 
@@ -189,6 +243,8 @@ def series_for(
             record.dataset != dataset
             or record.task != task
             or record.method != method
+            or record.regime != regime
+            or record.variant != variant
             or record.status != "ok"
             or metric not in record.metrics
         ):
@@ -207,6 +263,15 @@ def _format(value: Optional[float]) -> str:
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return "—"
     return "{:.3f}".format(value)
+
+
+def _format_summary(summary: Tuple[Optional[float], Optional[float], Optional[float]]) -> str:
+    mean, lower, upper = summary
+    if mean is None:
+        return "—"
+    if lower is None or upper is None:
+        return "{:.3f}".format(mean)
+    return "{:.3f} [{:.3f}, {:.3f}]".format(mean, lower, upper)
 
 
 def write_result_tables(records: Sequence[Record], path: Path) -> Path:
@@ -245,7 +310,7 @@ def write_result_tables(records: Sequence[Record], path: Path) -> Path:
             lines.append(
                 "Positive class is the forward-looking label described in each dataset's "
                 "`meta.json`. ROC-AUC is the headline metric; accuracy is reported for context "
-                "because the label is rebalanced but still skewed."
+                "because training may be rebalanced while evaluation keeps natural prevalence."
             )
         else:
             lines.append(
@@ -260,7 +325,11 @@ def write_result_tables(records: Sequence[Record], path: Path) -> Path:
                 (
                     record.num_train_sequences or record.sample_size
                     for record in records
-                    if record.dataset == dataset and record.task == task and record.status == "ok"
+                    if record.dataset == dataset
+                    and record.task == task
+                    and record.regime == "full"
+                    and record.variant == "default"
+                    and record.status == "ok"
                 ),
                 default=0,
             )
@@ -277,14 +346,17 @@ def write_result_tables(records: Sequence[Record], path: Path) -> Path:
 
             rows: List[Tuple[float, str]] = []
             for method in sorted(METHOD_REGISTRY):
-                points = {
-                    metric: dict(series_for(records, dataset, task, method, metric))
+                summaries = {
+                    metric: _bootstrap_summary(
+                        _metric_values_at(
+                            records, dataset, task, method, metric, best_size, regime="full"
+                        )
+                    )
                     for metric, _, _ in metrics
                 }
-                values = [points[metric].get(best_size) for metric, _, _ in metrics]
-                if all(value is None for value in values):
+                if all(summary[0] is None for summary in summaries.values()):
                     continue
-                primary = points.get(PRIMARY_METRIC[task], {}).get(best_size)
+                primary = summaries.get(PRIMARY_METRIC[task], (None, None, None))[0]
                 rank = -(primary if primary is not None else -1.0)
                 rows.append(
                     (
@@ -293,13 +365,284 @@ def write_result_tables(records: Sequence[Record], path: Path) -> Path:
                             _display(method),
                             _family(method),
                             _status(method),
-                            " | ".join(_format(value) for value in values),
+                            " | ".join(
+                                _format_summary(summaries[metric]) for metric, _, _ in metrics
+                            ),
                         ),
                     )
                 )
             for _, row in sorted(rows, key=lambda item: item[0]):
                 lines.append(row)
             lines.append("")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def write_adaptation_table(records: Sequence[Record], path: Path) -> Path:
+    """Write frozen/PEFT/full comparisons with seed-level uncertainty."""
+
+    adaptation_records = [
+        record for record in records if record.regime != "full" and record.variant == "default"
+    ]
+    lines = [
+        "# Adaptation-regime results",
+        "",
+        "Cells report the mean and deterministic seed-bootstrap 95% interval. Full",
+        "fine-tuning is included beside frozen and parameter-efficient conditions",
+        "when it was run with the same dataset, task, method, and sample size.",
+        "",
+    ]
+    if not adaptation_records:
+        lines.append("No non-default adaptation cells were found.")
+        lines.append("")
+    coordinates = sorted(
+        {
+            (record.dataset, record.task, record.method)
+            for record in adaptation_records
+            if record.status == "ok"
+        }
+    )
+    for dataset, task, method in coordinates:
+        metric = PRIMARY_METRIC[task]
+        matching = [
+            record
+            for record in records
+            if record.dataset == dataset
+            and record.task == task
+            and record.method == method
+            and record.variant == "default"
+            and record.status == "ok"
+        ]
+        if not matching:
+            continue
+        size = max(record.num_train_sequences or record.sample_size for record in matching)
+        lines.extend(
+            [
+                "## {} — {} — {}".format(
+                    DATASET_REGISTRY[dataset].display_name, task, _display(method)
+                ),
+                "",
+                "| Regime | N | {} | Trainable parameters | Wall seconds |".format(metric),
+                "| --- | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for regime in ("frozen", "peft", "full"):
+            regime_records = [
+                record
+                for record in matching
+                if record.regime == regime
+                and (record.num_train_sequences or record.sample_size) == size
+            ]
+            if not regime_records:
+                continue
+            metric_summary = _bootstrap_summary(
+                [record.metrics[metric] for record in regime_records if metric in record.metrics]
+            )
+            parameter_summary = _bootstrap_summary(
+                [
+                    record.metrics.get(
+                        "num_trainable_parameters", record.metrics.get("num_parameters")
+                    )
+                    for record in regime_records
+                    if record.metrics.get(
+                        "num_trainable_parameters", record.metrics.get("num_parameters")
+                    )
+                    is not None
+                ]
+            )
+            wall_summary = _bootstrap_summary(
+                [record.wall_seconds for record in regime_records]
+            )
+            lines.append(
+                "| {} | {} | {} | {} | {} |".format(
+                    regime,
+                    size,
+                    _format_summary(metric_summary),
+                    _format_summary(parameter_summary),
+                    _format_summary(wall_summary),
+                )
+            )
+        lines.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def write_ablation_table(records: Sequence[Record], path: Path) -> Path:
+    """Summarize every named non-default experimental variant."""
+
+    variant_records = [record for record in records if record.variant != "default"]
+    lines = [
+        "# Ablation and robustness variants",
+        "",
+        "Cells report the mean and deterministic seed-bootstrap 95% interval at",
+        "the largest completed sample size for each coordinate.",
+        "",
+    ]
+    if not variant_records:
+        lines.extend(["No named variant cells were found.", ""])
+    coordinates = sorted(
+        {
+            (record.dataset, record.task, record.method, record.regime)
+            for record in variant_records
+            if record.status == "ok"
+        }
+    )
+    for dataset, task, method, regime in coordinates:
+        matching = [
+            record
+            for record in variant_records
+            if record.dataset == dataset
+            and record.task == task
+            and record.method == method
+            and record.regime == regime
+            and record.status == "ok"
+        ]
+        if not matching:
+            continue
+        size = max(record.num_train_sequences or record.sample_size for record in matching)
+        metric = PRIMARY_METRIC[task]
+        lines.extend(
+            [
+                "## {} — {} — {} ({})".format(
+                    DATASET_REGISTRY[dataset].display_name, task, _display(method), regime
+                ),
+                "",
+                "| Variant | N | {} | Trainable parameters | Wall seconds |".format(metric),
+                "| --- | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for variant in sorted({record.variant for record in matching}):
+            rows = [
+                record
+                for record in matching
+                if record.variant == variant
+                and (record.num_train_sequences or record.sample_size) == size
+            ]
+            metric_summary = _bootstrap_summary(
+                [record.metrics[metric] for record in rows if metric in record.metrics]
+            )
+            parameter_values = [
+                record.metrics.get(
+                    "num_trainable_parameters", record.metrics.get("num_parameters")
+                )
+                for record in rows
+            ]
+            parameter_summary = _bootstrap_summary(
+                [value for value in parameter_values if value is not None]
+            )
+            wall_summary = _bootstrap_summary([record.wall_seconds for record in rows])
+            lines.append(
+                "| {} | {} | {} | {} | {} |".format(
+                    variant,
+                    size,
+                    _format_summary(metric_summary),
+                    _format_summary(parameter_summary),
+                    _format_summary(wall_summary),
+                )
+            )
+        lines.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def write_scaling_exponent_table(records: Sequence[Record], path: Path) -> Path:
+    """Fitted data-scaling exponents, per method and dataset."""
+
+    from eventfm.benchmark.scaling import ERROR_METRICS, MIN_R_SQUARED, fit_all
+
+    datasets = [name for name in DATASET_REGISTRY if any(r.dataset == name for r in records)]
+    methods = sorted(METHOD_REGISTRY)
+    fits = fit_all(records, datasets, ("classification", "tpp"), methods)
+
+    lines: List[str] = [
+        "# Data-scaling exponents",
+        "",
+        "Each curve's error is fitted to `E(N) = a · N^-b`, where `N` is the number",
+        "of labelled training sequences. **`b` is the data-scaling exponent: how fast",
+        "the error falls as data is added.** A larger `b` means the method is still",
+        "converting extra sequences into accuracy; `b` near zero means it has",
+        "flattened and more labels will not help.",
+        "",
+        "This ranks architectures by *data efficiency* rather than by score at one",
+        "sample size, which is the more relevant question for a foundation model.",
+        "",
+        "Fitted on six points per curve, so read `b` as a local slope over the",
+        "measured range, not an asymptotic claim. Values marked `*` have",
+        "`R² < {:.2f}` — the power law does not describe that curve well and the".format(
+            MIN_R_SQUARED
+        ),
+        "exponent should not be trusted.",
+        "",
+        "Two means are given. **`Mean b (reliable)` is the one to read** — it",
+        "averages only the fits that pass the R² gate, with the count in",
+        "parentheses, and it is what the rows are sorted by. `Mean b (all)`",
+        "includes the flagged fits and is shown so the difference is visible: on",
+        "classification, PaySim fails the gate for nearly every method, and its",
+        "occasional *negative* exponent (error rising with data) is the signature",
+        "of a task with no learnable signal rather than of a bad model.",
+        "",
+    ]
+
+    for task in ("classification", "tpp"):
+        metric, label, _ = ERROR_METRICS[task][0]
+        heading = "Classification" if task == "classification" else "Temporal point process"
+        lines.append("## {} — fitted on {}".format(heading, label))
+        lines.append("")
+        lines.append(
+            "| Method | Family | {} | Mean b (all) | Mean b (reliable) |".format(
+                " | ".join(DATASET_REGISTRY[name].display_name for name in datasets)
+            )
+        )
+        lines.append(
+            "| --- | --- | {} | ---: | ---: |".format(" | ".join(["---:"] * len(datasets)))
+        )
+
+        rows: List[Tuple[float, str]] = []
+        for method in methods:
+            if task not in METHOD_REGISTRY[method].supports:
+                continue
+            cells: List[str] = []
+            values: List[float] = []
+            reliable: List[float] = []
+            for dataset in datasets:
+                fit = fits.get((dataset, task, method, metric))
+                if fit is None:
+                    cells.append("—")
+                    continue
+                values.append(fit.exponent)
+                if fit.is_reliable:
+                    reliable.append(fit.exponent)
+                cells.append(
+                    "{:.3f}{}".format(fit.exponent, "" if fit.is_reliable else "*")
+                )
+            if not values:
+                continue
+            mean = float(np.mean(values))
+            # Ranked on the reliable-only mean: averaging in a fit the power law
+            # does not describe would rank methods on noise.
+            reliable_mean = float(np.mean(reliable)) if reliable else float("nan")
+            sort_key = reliable_mean if reliable else -1e9
+            rows.append(
+                (
+                    -sort_key,
+                    "| {} | {} | {} | {:.3f} | {} |".format(
+                        _display(method),
+                        _family(method),
+                        " | ".join(cells),
+                        mean,
+                        "**{:.3f}** ({})".format(reliable_mean, len(reliable))
+                        if reliable
+                        else "— (0)",
+                    ),
+                )
+            )
+        for _, row in sorted(rows, key=lambda item: item[0]):
+            lines.append(row)
+        lines.append("")
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -317,7 +660,14 @@ def _new_axes(theme: Theme, figsize: Tuple[float, float]):
 
 def _style_axes(axes, theme: Theme, x_label: str, y_label: str, title: str) -> None:
     axes.set_title(
-        title, color=theme.text_primary, fontsize=13, fontweight="bold", loc="left", pad=12
+        title,
+        color=theme.text_primary,
+        # Long family names in a 3-up facet grid need a smaller face than a
+        # single wide axes does, otherwise adjacent titles run into each other.
+        fontsize=13 if "\n" not in title and len(title) < 28 else 11,
+        fontweight="bold",
+        loc="left",
+        pad=10,
     )
     axes.set_xlabel(x_label, color=theme.text_secondary, fontsize=10)
     axes.set_ylabel(y_label, color=theme.text_secondary, fontsize=10)
@@ -498,10 +848,12 @@ def write_dataset_comparison_figures(
                         _plot_series(axes, theme, panel, direct_labels=False)
                         _log_x_axis(axes, sizes, theme)
                         # A lone series is named in the panel title instead of a
-                        # legend box that would just repeat it.
+                        # legend box that would just repeat it. The name goes on
+                        # its own line: appended inline it overflows the panel
+                        # and collides with the neighbouring title.
                         title = FAMILY_LABEL.get(family, family)
                         if len(panel) == 1:
-                            title = "{} — {}".format(title, next(iter(panel)))
+                            title = "{}\n{}".format(title, next(iter(panel)))
                         _style_axes(
                             axes,
                             theme,

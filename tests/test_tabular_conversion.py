@@ -115,6 +115,70 @@ def test_rebalancing_raises_the_positive_rate():
     assert meta["used_positive_rate"] > meta["natural_positive_rate"]
 
 
+def test_rebalancing_does_not_change_evaluation_prevalence():
+    config = ConversionConfig(
+        min_events_per_entity=8,
+        max_events_per_entity=32,
+        target_positive_rate=0.5,
+        max_entities=None,
+        seed=5,
+    )
+
+    _, meta = build_sequences(_table(), config)
+
+    for split in ("validation", "test"):
+        assert meta["split_used_positive_rate"][split] == pytest.approx(
+            meta["split_natural_positive_rate"][split]
+        )
+    assert meta["split_used_positive_rate"]["train"] >= meta[
+        "split_natural_positive_rate"
+    ]["train"]
+
+
+def test_categorical_vocabulary_is_fit_on_training_histories_only():
+    table = _table()
+    table.categorical["entity_code"] = np.asarray(table.entity_ids, dtype=object)
+    config = ConversionConfig(
+        min_events_per_entity=8,
+        max_events_per_entity=32,
+        target_positive_rate=None,
+        max_categorical_cardinality=100,
+        max_entities=None,
+    )
+
+    splits, meta = build_sequences(table, config)
+
+    train_ids = {sequence.user_id for sequence in splits["train"]}
+    assert set(meta["categorical_levels"]["entity_code"]) == train_ids
+    for split in ("validation", "test"):
+        for sequence in splits[split]:
+            assert {event.features["entity_code"] for event in sequence.events} == {"other"}
+    assert meta["preprocessing_fit_split"] == "train"
+
+
+def test_chronological_split_keeps_whole_entities_and_orders_history_endpoints():
+    table = _table()
+    entity_offsets = np.repeat(np.arange(40, dtype=np.float64) * 30.0 * 86400.0, 20)
+    table.timestamps = table.timestamps + entity_offsets
+    config = ConversionConfig(
+        min_events_per_entity=8,
+        max_events_per_entity=32,
+        target_positive_rate=None,
+        max_entities=None,
+        split_strategy="chronological",
+    )
+
+    splits, meta = build_sequences(table, config)
+
+    endpoints = {
+        split: [sequence.events[-1].timestamp for sequence in sequences]
+        for split, sequences in splits.items()
+    }
+    assert max(endpoints["train"]) <= min(endpoints["validation"])
+    assert max(endpoints["validation"]) <= min(endpoints["test"])
+    assert meta["split_strategy"] == "chronological"
+
+
 def test_time_cutoff_drops_later_rows():
     table = _table()
     table.time_cutoff = 5.0 * 3600.0

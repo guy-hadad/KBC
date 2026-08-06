@@ -17,9 +17,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from eventfm.benchmark.experiments import CORE_METHODS  # noqa: E402
 from eventfm.benchmark.runner import enumerate_cells, run_cell  # noqa: E402
 from eventfm.datasets.paths import output_root  # noqa: E402
-from eventfm.methods import METHOD_REGISTRY, method_names  # noqa: E402
+from eventfm.methods import METHOD_REGISTRY  # noqa: E402
 from eventfm.methods.base import TrainingSpec  # noqa: E402
 
 DEFAULT_DATASETS = ["banksim", "paysim", "ibm_aml", "mbd_mini"]
@@ -35,6 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--method", action="append", default=None)
     parser.add_argument("--samples", action="append", type=int, default=None)
     parser.add_argument("--seed", action="append", type=int, default=None)
+    parser.add_argument(
+        "--adaptation", choices=["full", "peft", "frozen"], default="full"
+    )
     parser.add_argument("--all", action="store_true", help="run the full grid")
     parser.add_argument("--skip-gpu-only", action="store_true", help="exclude LLM methods")
     parser.add_argument("--array-index", type=int, default=None)
@@ -76,13 +80,17 @@ def main() -> None:
 
     datasets = args.dataset or DEFAULT_DATASETS
     tasks = args.task or ["classification", "tpp"]
-    methods = args.method or method_names(include_gpu_only=not args.skip_gpu_only)
+    # Preserve the published 624-cell core grid. The expanded research grids
+    # are selected through scripts/run_experiments.py or explicit --method.
+    methods = args.method or list(CORE_METHODS)
     if args.skip_gpu_only:
         methods = [name for name in methods if not METHOD_REGISTRY[name].requires_gpu]
     sample_sizes = args.samples or DEFAULT_SAMPLE_SIZES
     seeds = args.seed or [13]
 
-    cells = enumerate_cells(datasets, tasks, methods, sample_sizes, seeds)
+    cells = enumerate_cells(
+        datasets, tasks, methods, sample_sizes, seeds, regimes=(args.adaptation,)
+    )
     if args.list:
         for index, cell in enumerate(cells):
             print("{:4d}  {}".format(index, cell.key))

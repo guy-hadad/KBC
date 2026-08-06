@@ -5,13 +5,14 @@ only in column names, timestamp encoding and which column carries the target,
 so every adapter reduces its source to a :class:`TransactionTable` and this
 module does the rest:
 
-1. bucket numeric fields into quantile tokens (type-aware value encoding, as in
-   PRAGMA and TabFormer),
+1. split entities, then fit numeric/category transforms on training histories
+   only (type-aware value encoding, as in PRAGMA and TabFormer),
 2. group rows into per-entity histories ordered by time,
 3. hold out the tail of each history to build a leakage-free classification
    label ("does a flagged event occur in the future?"),
-4. rebalance negatives so small-sample scaling points still contain positives,
-5. split entities into train/validation/test and write JSONL.
+4. rebalance training negatives so small-sample scaling points contain positives
+   while validation and test retain their natural prevalence,
+5. write the disjoint entity splits to JSONL.
 """
 
 import hashlib
@@ -57,6 +58,8 @@ class ConversionConfig:
     label_horizon_fraction: float = 0.25
     min_label_horizon_events: int = 1
     target_positive_rate: Optional[float] = 0.25
+    preserve_eval_prevalence: bool = True
+    split_strategy: str = "hash"
     max_entities: Optional[int] = 60000
     validation_fraction: float = 0.15
     test_fraction: float = 0.20
@@ -68,6 +71,28 @@ def _stable_bucket(entity_id: str, num_buckets: int = 1000) -> int:
     return int(digest[:8], 16) % num_buckets
 
 
+def fit_quantile_edges(values: np.ndarray, num_buckets: int) -> List[float]:
+    """Fit quantile boundaries without retaining the source values."""
+
+    finite = np.asarray(values, dtype=np.float64)
+    valid = np.isfinite(finite)
+    if not valid.any():
+        return []
+    probs = np.linspace(0.0, 1.0, num_buckets + 1)[1:-1]
+    return [float(edge) for edge in np.unique(np.quantile(finite[valid], probs))]
+
+
+def apply_quantile_edges(values: np.ndarray, edges: Sequence[float]) -> np.ndarray:
+    """Apply training-set quantile boundaries to any split."""
+
+    finite = np.asarray(values, dtype=np.float64)
+    valid = np.isfinite(finite)
+    indices = np.digitize(finite, np.asarray(edges, dtype=np.float64), right=False)
+    tokens = np.asarray(["b_{}".format(int(index)) for index in indices], dtype=object)
+    tokens[~valid] = "na"
+    return tokens
+
+
 def quantile_bucketize(values: np.ndarray, num_buckets: int) -> Tuple[np.ndarray, List[float]]:
     """Map a numeric column to ``b_<idx>`` tokens using quantile edges.
 
@@ -75,27 +100,58 @@ def quantile_bucketize(values: np.ndarray, num_buckets: int) -> Tuple[np.ndarray
     tailed and uniform bins would collapse almost everything into bin 0.
     """
 
-    finite = np.asarray(values, dtype=np.float64)
-    valid = np.isfinite(finite)
-    if not valid.any():
-        return np.full(finite.shape, "na", dtype=object), []
-    probs = np.linspace(0.0, 1.0, num_buckets + 1)[1:-1]
-    edges = np.unique(np.quantile(finite[valid], probs))
-    indices = np.digitize(finite, edges, right=False)
-    tokens = np.asarray(["b_{}".format(int(i)) for i in indices], dtype=object)
-    tokens[~valid] = "na"
-    return tokens, [float(edge) for edge in edges]
+    edges = fit_quantile_edges(values, num_buckets)
+    return apply_quantile_edges(values, edges), edges
+
+
+def fit_category_levels(values: np.ndarray, max_cardinality: int) -> List[str]:
+    """Select the most frequent training levels with deterministic tie breaks."""
+
+    tokens = np.asarray([str(value) for value in values], dtype=object)
+    if not tokens.size:
+        return []
+    unique, counts = np.unique(tokens, return_counts=True)
+    order = sorted(range(len(unique)), key=lambda index: (-int(counts[index]), str(unique[index])))
+    return [str(unique[index]) for index in order[:max_cardinality]]
+
+
+def apply_category_levels(values: np.ndarray, levels: Sequence[str]) -> np.ndarray:
+    """Map categories unseen in training to an explicit ``other`` token."""
+
+    keep = set(levels)
+    return np.asarray(
+        [str(value) if str(value) in keep else "other" for value in values], dtype=object
+    )
 
 
 def collapse_rare_categories(values: np.ndarray, max_cardinality: int) -> np.ndarray:
     """Keep the most frequent levels, fold the tail into ``other``."""
 
-    tokens = np.asarray([str(value) for value in values], dtype=object)
-    unique, counts = np.unique(tokens, return_counts=True)
-    if unique.shape[0] <= max_cardinality:
-        return tokens
-    keep = set(unique[np.argsort(-counts)[:max_cardinality]].tolist())
-    return np.asarray([token if token in keep else "other" for token in tokens], dtype=object)
+    levels = fit_category_levels(values, max_cardinality)
+    return apply_category_levels(values, levels)
+
+
+def _positive_rate(entity_ids: Sequence[str], labels: Dict[str, int]) -> float:
+    return float(np.mean([labels[entity_id] for entity_id in entity_ids])) if entity_ids else 0.0
+
+
+def _proportional_caps(lengths: Dict[str, int], total_cap: int) -> Dict[str, int]:
+    """Allocate a global entity cap across splits by largest remainder."""
+
+    total = sum(lengths.values())
+    if total <= total_cap:
+        return dict(lengths)
+    exact = {name: total_cap * count / float(total) for name, count in lengths.items()}
+    caps = {name: min(lengths[name], int(np.floor(value))) for name, value in exact.items()}
+    remaining = total_cap - sum(caps.values())
+    order = sorted(lengths, key=lambda name: (-(exact[name] - caps[name]), name))
+    for name in order:
+        if remaining <= 0:
+            break
+        if caps[name] < lengths[name]:
+            caps[name] += 1
+            remaining -= 1
+    return caps
 
 
 def _group_rows(entity_ids: np.ndarray, timestamps: np.ndarray) -> Dict[str, np.ndarray]:
@@ -163,6 +219,34 @@ def _assign_split(entity_id: str, validation_fraction: float, test_fraction: flo
     return "train"
 
 
+def _chronological_entity_splits(
+    labels: Dict[str, int],
+    histories: Dict[str, np.ndarray],
+    timestamps: np.ndarray,
+    validation_fraction: float,
+    test_fraction: float,
+) -> Dict[str, List[str]]:
+    """Assign older whole-entity histories to train and newer ones to evaluation."""
+
+    ordered = sorted(
+        labels,
+        key=lambda entity_id: (
+            float(timestamps[int(histories[entity_id][-1])]),
+            entity_id,
+        ),
+    )
+    num_entities = len(ordered)
+    num_test = int(round(num_entities * test_fraction))
+    num_validation = int(round(num_entities * validation_fraction))
+    train_end = max(0, num_entities - num_test - num_validation)
+    validation_end = num_entities - num_test
+    return {
+        "train": ordered[:train_end],
+        "validation": ordered[train_end:validation_end],
+        "test": ordered[validation_end:],
+    }
+
+
 def build_sequences(
     table: TransactionTable,
     config: ConversionConfig,
@@ -180,19 +264,6 @@ def build_sequences(
 
     entity_ids = np.asarray([str(value) for value in table.entity_ids], dtype=object)
     timestamps = np.asarray(table.timestamps, dtype=np.float64)
-    event_types = collapse_rare_categories(table.event_types, config.max_categorical_cardinality)
-
-    feature_tokens: Dict[str, np.ndarray] = {}
-    bucket_edges: Dict[str, List[float]] = {}
-    for name, values in table.categorical.items():
-        feature_tokens[name] = collapse_rare_categories(values, config.max_categorical_cardinality)
-    for name, values in table.numeric.items():
-        tokens, edges = quantile_bucketize(
-            np.asarray(values, dtype=np.float64), config.num_numeric_buckets
-        )
-        feature_tokens[name] = tokens
-        bucket_edges[name] = edges
-
     flags = None if table.flags is None else np.asarray(table.flags, dtype=np.int64)
     groups = _group_rows(entity_ids, timestamps)
 
@@ -223,51 +294,132 @@ def build_sequences(
         histories[entity_id] = observed
         labels[entity_id] = int(flags[future].max()) if flags is not None else 0
 
-    natural_positive_rate = (
-        float(np.mean(list(labels.values()))) if labels else 0.0
+    if config.split_strategy == "chronological":
+        ids_by_split = _chronological_entity_splits(
+            labels,
+            histories,
+            timestamps,
+            config.validation_fraction,
+            config.test_fraction,
+        )
+    elif config.split_strategy == "hash":
+        ids_by_split = {"train": [], "validation": [], "test": []}
+        for entity_id in labels:
+            split = _assign_split(entity_id, config.validation_fraction, config.test_fraction)
+            ids_by_split[split].append(entity_id)
+    else:
+        raise ValueError(
+            "Unknown split strategy `{}`; expected `hash` or `chronological`.".format(
+                config.split_strategy
+            )
+        )
+
+    split_natural_rates = {
+        split: _positive_rate(entity_ids_in_split, labels)
+        for split, entity_ids_in_split in ids_by_split.items()
+    }
+    if config.preserve_eval_prevalence:
+        train_labels = {entity_id: labels[entity_id] for entity_id in ids_by_split["train"]}
+        kept_by_split = {
+            "train": _rebalance(train_labels, config.target_positive_rate, rng),
+            "validation": list(ids_by_split["validation"]),
+            "test": list(ids_by_split["test"]),
+        }
+        rng.shuffle(kept_by_split["validation"])
+        rng.shuffle(kept_by_split["test"])
+    else:
+        kept = _rebalance(labels, config.target_positive_rate, rng)
+        kept_by_split = {"train": [], "validation": [], "test": []}
+        for entity_id in kept:
+            split = _assign_split(entity_id, config.validation_fraction, config.test_fraction)
+            kept_by_split[split].append(entity_id)
+
+    if config.max_entities is not None:
+        caps = _proportional_caps(
+            {
+                split: len(entity_ids_in_split)
+                for split, entity_ids_in_split in kept_by_split.items()
+            },
+            config.max_entities,
+        )
+        for split, cap in caps.items():
+            rng.shuffle(kept_by_split[split])
+            kept_by_split[split] = kept_by_split[split][:cap]
+
+    # Every learned transform sees only events in the retained training histories.
+    train_rows = np.concatenate(
+        [histories[entity_id] for entity_id in kept_by_split["train"]],
+        dtype=np.int64,
+    ) if kept_by_split["train"] else np.asarray([], dtype=np.int64)
+    event_type_levels = fit_category_levels(
+        np.asarray(table.event_types)[train_rows], config.max_categorical_cardinality
     )
-    kept = _rebalance(labels, config.target_positive_rate, rng)
-    if config.max_entities is not None and len(kept) > config.max_entities:
-        positives = [key for key in kept if labels[key] == 1]
-        negatives = [key for key in kept if labels[key] != 1]
-        share = config.max_entities / float(len(kept))
-        positives = positives[: max(1, int(round(len(positives) * share)))]
-        negatives = negatives[: max(1, config.max_entities - len(positives))]
-        kept = positives + negatives
-        rng.shuffle(kept)
+    event_types = apply_category_levels(table.event_types, event_type_levels)
+
+    feature_tokens: Dict[str, np.ndarray] = {}
+    category_levels: Dict[str, List[str]] = {}
+    bucket_edges: Dict[str, List[float]] = {}
+    for name, values in table.categorical.items():
+        levels = fit_category_levels(
+            np.asarray(values)[train_rows], config.max_categorical_cardinality
+        )
+        category_levels[name] = levels
+        feature_tokens[name] = apply_category_levels(values, levels)
+    for name, values in table.numeric.items():
+        numeric_values = np.asarray(values, dtype=np.float64)
+        edges = fit_quantile_edges(numeric_values[train_rows], config.num_numeric_buckets)
+        feature_tokens[name] = apply_quantile_edges(numeric_values, edges)
+        bucket_edges[name] = edges
 
     feature_names = sorted(feature_tokens.keys())
     profile_names = sorted(table.profile.keys())
     splits: Dict[str, List[EventSequence]] = {"train": [], "validation": [], "test": []}
-    for entity_id in kept:
-        row_indices = histories[entity_id]
-        events = [
-            Event(
-                event_type=str(event_types[row]),
-                timestamp=float(timestamps[row]),
-                features={name: str(feature_tokens[name][row]) for name in feature_names},
+    for split, kept in kept_by_split.items():
+        for entity_id in kept:
+            row_indices = histories[entity_id]
+            events = [
+                Event(
+                    event_type=str(event_types[row]),
+                    timestamp=float(timestamps[row]),
+                    features={name: str(feature_tokens[name][row]) for name in feature_names},
+                )
+                for row in row_indices
+            ]
+            first_row = int(row_indices[0])
+            sequence = EventSequence(
+                user_id=entity_id,
+                events=events,
+                label=int(labels[entity_id]),
+                profile={name: str(table.profile[name][first_row]) for name in profile_names},
             )
-            for row in row_indices
-        ]
-        first_row = int(row_indices[0])
-        sequence = EventSequence(
-            user_id=entity_id,
-            events=events,
-            label=int(labels[entity_id]),
-            profile={name: str(table.profile[name][first_row]) for name in profile_names},
-        )
-        split = _assign_split(entity_id, config.validation_fraction, config.test_fraction)
-        splits[split].append(sequence)
+            splits[split].append(sequence)
+
+    kept_all = [entity_id for kept in kept_by_split.values() for entity_id in kept]
+    split_used_rates = {
+        split: _positive_rate(entity_ids_in_split, labels)
+        for split, entity_ids_in_split in kept_by_split.items()
+    }
 
     meta = {
         "event_types": sorted({str(value) for value in event_types}),
         "feature_fields": feature_names,
         "profile_fields": profile_names,
+        "event_type_levels": event_type_levels,
+        "categorical_levels": category_levels,
         "numeric_bucket_edges": bucket_edges,
-        "natural_positive_rate": natural_positive_rate,
-        "used_positive_rate": float(np.mean([labels[key] for key in kept])) if kept else 0.0,
+        "preprocessing_fit_split": "train",
+        "split_strategy": config.split_strategy,
+        "preserve_eval_prevalence": config.preserve_eval_prevalence,
+        "natural_positive_rate": _positive_rate(list(labels), labels),
+        # Compatibility: this field now refers to the split that is intentionally
+        # rebalanced, rather than pooling altered train and natural evaluation data.
+        "used_positive_rate": split_used_rates["train"],
+        "split_natural_positive_rate": split_natural_rates,
+        "split_used_positive_rate": split_used_rates,
+        "split_num_entities_total": {split: len(items) for split, items in ids_by_split.items()},
+        "split_num_entities_kept": {split: len(items) for split, items in kept_by_split.items()},
         "num_entities_total": len(labels),
-        "num_entities_kept": len(kept),
+        "num_entities_kept": len(kept_all),
         "num_rows": len(table),
     }
     return splits, meta

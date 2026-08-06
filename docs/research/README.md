@@ -33,6 +33,8 @@ systems optimize different capabilities. The paper should separate five axes:
 | [`temporal_tokenization.md`](temporal_tokenization.md) | Complete, implementation-oriented specification of every method and ablation in Liu et al. (GEM 2026). |
 | [`experimental_protocol.md`](experimental_protocol.md) | Paper-grade datasets, tasks, controls, metrics, statistical tests, and reproducibility rules. |
 | [`paper_blueprint.md`](paper_blueprint.md) | Candidate thesis, research questions, claim-to-evidence map, paper outline, and execution phases. |
+| [`implementation_manifest.md`](implementation_manifest.md) | Generated inventory of every runnable method, dataset, tokenizer, and experiment suite. |
+| [`experiment_execution.md`](experiment_execution.md) | Commands, suite map, result artifacts, validity gates, and execution boundary. |
 
 ## Status vocabulary
 
@@ -77,4 +79,3 @@ foundation-model result: the training sets are small, several named methods are
 controlled approximations, and pretraining and downstream training use the same
 limited corpus. Paper text and tables must preserve that distinction until a
 large unlabeled pretraining stage and genuine transfer evaluation are run.
-

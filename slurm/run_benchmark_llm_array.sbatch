@@ -1,6 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=kbc-llm
-#SBATCH --gres=gpu:1
+# The installed torch is a CUDA 13 build, which dropped Pascal (sm_61), so a
+# GTX 1080 fails every cell with "no kernel image is available". A node-level
+# --constraint is NOT sufficient: the pheno nodes advertise both rtx_3090 and
+# gtx_1080 features, match the constraint, and then hand out the 1080. The GPU
+# type has to be named in --gres itself.
+#SBATCH --gres=gpu:rtx_3090:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=48G
 #SBATCH --time=08:00:00
@@ -27,6 +32,28 @@ conda activate KBC
 
 echo "host=$(hostname) task=${SLURM_ARRAY_TASK_ID}/${SLURM_ARRAY_TASK_COUNT}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
+
+# Preflight: prove this GPU can actually run a kernel before spending hours on
+# cells that would each fail the same way and be cached as failures.
+python - <<'PREFLIGHT'
+import sys
+
+import torch
+
+if not torch.cuda.is_available():
+    sys.exit("preflight: no CUDA device visible")
+name = torch.cuda.get_device_name(0)
+capability = torch.cuda.get_device_capability(0)
+try:
+    (torch.zeros(8, device="cuda") + 1).sum().item()
+except Exception as exc:  # noqa: BLE001 - fail fast with the real reason
+    sys.exit(
+        "preflight: {} (sm_{}{}) cannot run kernels from this torch build: {}".format(
+            name, capability[0], capability[1], exc
+        )
+    )
+print("preflight ok: {} (sm_{}{})".format(name, capability[0], capability[1]))
+PREFLIGHT
 
 python scripts/run_benchmark.py \
   --all \

@@ -64,6 +64,22 @@ def test_cell_key_is_unique_per_coordinate():
     assert left.key == "banksim__tpp__thp__n64__s13"
 
 
+def test_nondefault_adaptation_regime_is_part_of_the_cell_key():
+    full = BenchmarkCell("banksim", "classification", "coles", 64, 13, "full")
+    peft = BenchmarkCell("banksim", "classification", "coles", 64, 13, "peft")
+
+    assert full.key == "banksim__classification__coles__n64__s13"
+    assert peft.key == "banksim__classification__coles__n64__s13__rpeft"
+
+
+def test_nondefault_experiment_variant_is_part_of_the_cell_key():
+    cell = BenchmarkCell(
+        "banksim", "tpp", "eventfm-joint", 2048, 13, "full", "masked-next"
+    )
+
+    assert cell.key.endswith("__vmasked-next")
+
+
 def test_subsample_preserves_the_label_balance():
     sequences = _sequences(num_positive=200, num_negative=800)
 
@@ -113,13 +129,26 @@ def test_every_method_declares_its_fidelity_and_divergence():
         assert spec.reference, "{} must cite something".format(name)
 
 
-def test_only_the_controls_claim_full_fidelity():
-    implemented = {
-        name for name, spec in METHOD_REGISTRY.items() if spec.status == "Implemented"
+def test_paper_named_methods_disclose_that_they_are_approximations():
+    paper_named = {
+        "nhp",
+        "sahp",
+        "attnhp",
+        "iftpp",
+        "cotic",
+        "nppr",
+        "mlem",
+        "cmlm-coles",
+        "sohet",
+        "motor",
+        "ora",
+        "pragma",
+        "tpp-llm",
+        "language-tpp",
     }
 
-    # Everything else approximates a published recipe at benchmark scale.
-    assert implemented == {"markov", "count-logistic"}
+    assert paper_named <= set(METHOD_REGISTRY)
+    assert all(METHOD_REGISTRY[name].status == "Approximation" for name in paper_named)
 
 
 def test_registering_an_approximation_without_disclosure_is_rejected():

@@ -1,8 +1,8 @@
 """Metrics shared by every method, so the benchmark tables compare like with like.
 
-Classification reports accuracy, ROC-AUC and average precision; with rebalanced
-but still skewed positives, AUC and AP are the honest headline numbers and
-accuracy is context.
+Classification reports accuracy, ROC-AUC and average precision. Training may be
+rebalanced, while current validation/test splits retain natural prevalence; AUC
+and AP are the headline metrics and accuracy is context.
 
 The TPP task is scored separately for *what* and *when*, which the neural-TPP
 review specifically recommends over a single likelihood that hides which half

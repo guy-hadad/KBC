@@ -5,12 +5,16 @@ Every adapter downloads the public source, converts it to the shared
 ``train/validation/test`` splits plus a ``meta.json`` describing the event
 vocabulary and the classification target.
 
-The four datasets are exactly the open benchmarks listed in section 3.1.5 of
-the project note: MBD, PaySim, BankSim and the IBM AML generator.
+The primary banking datasets are MBD-mini, PaySim, BankSim and IBM AML. The five
+TPP-LLM/GEM temporal-tokenization datasets are also available for external
+reproduction experiments.
 """
 
 from eventfm.datasets.registry import (
+    CHRONOLOGICAL_DATASETS,
     DATASET_REGISTRY,
+    GEM_DATASETS,
+    PRIMARY_DATASETS,
     DatasetMeta,
     build_dataset,
     dataset_names,
@@ -20,6 +24,9 @@ from eventfm.datasets.registry import (
 
 __all__ = [
     "DATASET_REGISTRY",
+    "CHRONOLOGICAL_DATASETS",
+    "GEM_DATASETS",
+    "PRIMARY_DATASETS",
     "DatasetMeta",
     "build_dataset",
     "dataset_names",

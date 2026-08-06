@@ -44,6 +44,9 @@ class TrainingSpec:
     output_dir: Optional[str] = None
     # LLM methods need a smaller learning rate and a shorter schedule.
     learning_rate_override: Optional[float] = None
+    # ``frozen`` trains only downstream heads after pretraining; ``peft`` also
+    # trains a bottleneck adapter; ``full`` fine-tunes the complete backbone.
+    adaptation: str = "full"
 
 
 @dataclass
@@ -70,12 +73,20 @@ class MethodContext:
         return self.dataset.num_event_types
 
     @property
+    def num_input_event_types(self) -> int:
+        return self.tokenizer.num_event_types
+
+    @property
     def num_labels(self) -> int:
         return self.dataset.num_labels
 
     @property
     def max_features_per_event(self) -> int:
         return self.tokenizer.max_features_per_event
+
+    @property
+    def model_feature_fields(self) -> List[str]:
+        return list(self.extra.get("model_feature_fields", self.dataset.feature_fields))
 
 
 # Fidelity vocabulary from docs/research/README.md. A registry entry named after
@@ -232,6 +243,28 @@ class TorchMethod(Method):
         model = self.build_model()
         self._model = model
         self.pretrain(model)
+        if self.context.training.adaptation in {"frozen", "peft"}:
+            backbone = getattr(model, "backbone", None)
+            if backbone is None:
+                raise ValueError(
+                    "Frozen adaptation requires a model exposing a `backbone` module."
+                )
+            for parameter in backbone.parameters():
+                parameter.requires_grad = False
+            if self.context.training.adaptation == "peft":
+                adapter = getattr(backbone, "adapter", None)
+                if adapter is None:
+                    raise ValueError(
+                        "PEFT adaptation requires a backbone exposing an `adapter` module."
+                    )
+                for parameter in adapter.parameters():
+                    parameter.requires_grad = True
+        elif self.context.training.adaptation != "full":
+            raise ValueError(
+                "Unknown adaptation regime `{}`; expected `full`, `peft`, or `frozen`.".format(
+                    self.context.training.adaptation
+                )
+            )
 
         collator = self.build_collator()
         trainer = Trainer(
@@ -245,6 +278,8 @@ class TorchMethod(Method):
         trainer.train()
         metrics = trainer.evaluate()
         metrics["num_parameters"] = float(self.num_parameters())
+        metrics["num_trainable_parameters"] = float(self.num_parameters())
+        metrics["num_total_parameters"] = float(self.num_total_parameters())
         return {key.replace("eval_", ""): value for key, value in metrics.items()}
 
     def num_parameters(self) -> int:
@@ -254,6 +289,12 @@ class TorchMethod(Method):
         return int(
             sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
         )
+
+    def num_total_parameters(self) -> int:
+        model = getattr(self, "_model", None)
+        if model is None:
+            return 0
+        return int(sum(parameter.numel() for parameter in model.parameters()))
 
 
 def resolve_device() -> torch.device:

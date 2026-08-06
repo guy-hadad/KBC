@@ -28,6 +28,9 @@ class FlatMethod(TorchMethod):
     use_time_features = True
     use_calendar_features = True
     time_loss = "lognormal_mixture"
+    time_feature_mode = "fourier"
+    type_conditioned_features = False
+    use_position_embeddings = True
 
     def configure(self, config: FlatEventConfig) -> FlatEventConfig:
         return config
@@ -37,16 +40,25 @@ class FlatMethod(TorchMethod):
         config = FlatEventConfig(
             vocab_size=len(context.vocab),
             num_event_types=max(2, context.num_event_types),
-            num_feature_fields=max(1, len(context.dataset.feature_fields)),
+            num_input_event_types=max(2, context.num_input_event_types),
+            num_feature_fields=max(1, len(context.model_feature_fields)),
             hidden_size=context.hidden_size,
             num_hidden_layers=context.num_hidden_layers,
             num_attention_heads=context.num_attention_heads,
             intermediate_size=context.intermediate_size,
             dropout=context.dropout,
             backbone=self.backbone,
-            pooling=self.pooling,
+            pooling=str(context.extra.get("pooling_override", self.pooling)),
             use_time_features=self.use_time_features,
             use_calendar_features=self.use_calendar_features,
+            time_feature_mode=self.time_feature_mode,
+            type_conditioned_features=self.type_conditioned_features,
+            use_position_embeddings=self.use_position_embeddings,
+            adapter_size=(
+                int(context.extra.get("adapter_size", max(8, context.hidden_size // 8)))
+                if context.training.adaptation == "peft"
+                else 0
+            ),
             time_loss=self.time_loss,
             max_position_embeddings=max(64, context.training.max_events + 8),
             num_labels=context.num_labels,
@@ -65,7 +77,7 @@ class FlatMethod(TorchMethod):
             tokenizer=self.context.tokenizer,
             task=self.context.task,
             max_events=self.context.training.max_events,
-            feature_fields=self.context.dataset.feature_fields,
+            feature_fields=self.context.model_feature_fields,
         )
 
     def build_dataset(self, path: str, split: str) -> Dataset:

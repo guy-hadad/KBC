@@ -1,9 +1,10 @@
 """Dataset registry: names, build entrypoints and cached metadata."""
 
+import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from eventfm.datasets.paths import processed_root
 from eventfm.datasets.tabular import (
@@ -25,6 +26,8 @@ class DatasetSpec:
     mark: str
     label: str
     config: ConversionConfig = field(default_factory=ConversionConfig)
+    supports: Tuple[str, ...] = ("classification", "tpp")
+    adapter: Optional[str] = None
 
 
 DATASET_REGISTRY: Dict[str, DatasetSpec] = {
@@ -100,7 +103,82 @@ DATASET_REGISTRY: Dict[str, DatasetSpec] = {
         mark="type_<idx> (50 types)",
         label="generator-assigned binary label",
     ),
+    "stackoverflow": DatasetSpec(
+        name="stackoverflow",
+        display_name="Stack Overflow",
+        source="hf:tppllm/stack-overflow-description",
+        citation="TPP-LLM public event-sequence benchmark",
+        entity="user sequence",
+        mark="badge text (25 types)",
+        label="next event type and time only",
+        supports=("tpp",),
+    ),
+    "chicago_crime": DatasetSpec(
+        name="chicago_crime",
+        display_name="Chicago Crime",
+        source="hf:tppllm/chicago-crime-description",
+        citation="TPP-LLM public event-sequence benchmark",
+        entity="spatial sequence",
+        mark="crime event text (20 types)",
+        label="next event type and time only",
+        supports=("tpp",),
+    ),
+    "nyc_taxi": DatasetSpec(
+        name="nyc_taxi",
+        display_name="NYC Taxi",
+        source="hf:tppllm/nyc-taxi-description",
+        citation="TPP-LLM public event-sequence benchmark",
+        entity="taxi trajectory sequence",
+        mark="taxi event text (8 types)",
+        label="next event type and time only",
+        supports=("tpp",),
+    ),
+    "us_earthquake": DatasetSpec(
+        name="us_earthquake",
+        display_name="US Earthquake",
+        source="hf:tppllm/us-earthquake-description",
+        citation="TPP-LLM public event-sequence benchmark",
+        entity="earthquake sequence",
+        mark="earthquake event text (3 types)",
+        label="next event type and time only",
+        supports=("tpp",),
+    ),
+    "amazon_review": DatasetSpec(
+        name="amazon_review",
+        display_name="Amazon Review",
+        source="hf:tppllm/amazon-review-description",
+        citation="TPP-LLM public event-sequence benchmark",
+        entity="reviewer sequence",
+        mark="review category text (18 types)",
+        label="next event type and time only",
+        supports=("tpp",),
+    ),
 }
+
+PRIMARY_DATASETS = ("banksim", "paysim", "ibm_aml", "mbd_mini")
+CHRONOLOGICAL_DATASETS = tuple("{}_chrono".format(name) for name in PRIMARY_DATASETS)
+GEM_DATASETS = (
+    "stackoverflow",
+    "chicago_crime",
+    "nyc_taxi",
+    "us_earthquake",
+    "amazon_review",
+)
+
+for _base_name, _chronological_name in zip(PRIMARY_DATASETS, CHRONOLOGICAL_DATASETS):
+    _base_spec = DATASET_REGISTRY[_base_name]
+    DATASET_REGISTRY[_chronological_name] = DatasetSpec(
+        name=_chronological_name,
+        display_name="{} (chronological)".format(_base_spec.display_name),
+        source=_base_spec.source,
+        citation=_base_spec.citation,
+        entity=_base_spec.entity,
+        mark=_base_spec.mark,
+        label=_base_spec.label,
+        config=replace(_base_spec.config, split_strategy="chronological"),
+        supports=_base_spec.supports,
+        adapter=_base_name,
+    )
 
 
 @dataclass
@@ -200,13 +278,24 @@ def build_dataset(
 
     if name == "synthetic":
         splits, raw_meta = _build_synthetic(conversion)
+    elif name in GEM_DATASETS:
+        splits, raw_meta = _build_tppllm(name)
     else:
         from eventfm.datasets.adapters import ADAPTERS
 
-        table = ADAPTERS[name](conversion)
+        table = ADAPTERS[spec.adapter or name](conversion)
         splits, raw_meta = build_sequences(table, conversion)
 
     paths = write_splits(splits, output_dir)
+    split_sha256 = {}
+    for split, path in paths.items():
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        split_sha256[split] = digest.hexdigest()
+    reserved = {"event_types", "feature_fields", "profile_fields"}
+    conversion_metadata = {key: value for key, value in raw_meta.items() if key not in reserved}
     meta = DatasetMeta(
         name=name,
         display_name=spec.display_name,
@@ -217,19 +306,82 @@ def build_dataset(
         num_labels=2,
         stats=summarise_splits(splits),
         extra={
+            **conversion_metadata,
             "source": spec.source,
             "citation": spec.citation,
             "entity": spec.entity,
             "mark": spec.mark,
             "label": spec.label,
-            "natural_positive_rate": raw_meta.get("natural_positive_rate"),
-            "used_positive_rate": raw_meta.get("used_positive_rate"),
-            "num_entities_total": raw_meta.get("num_entities_total"),
-            "num_rows": raw_meta.get("num_rows"),
+            "supported_tasks": list(spec.supports),
+            "split_sha256": split_sha256,
         },
     )
     write_meta(output_dir, meta.to_json())
     return meta
+
+
+def _build_tppllm(name: str):
+    """Convert the public TPP-LLM sequence datasets without regrouping rows."""
+
+    from datasets import load_dataset
+
+    from eventfm.data.schema import Event, EventSequence
+
+    repository = str(DATASET_REGISTRY[name].source).replace("hf:", "", 1)
+    dataset = load_dataset(repository)
+    unit_seconds = {
+        "stackoverflow": 30.0 * 86400.0,
+        "chicago_crime": 30.0 * 86400.0,
+        "nyc_taxi": 3600.0,
+        "us_earthquake": 86400.0,
+        "amazon_review": 7.0 * 86400.0,
+    }[name]
+    origin = 1_640_995_200.0
+    splits = {"train": [], "validation": [], "test": []}
+    event_types = set()
+    for split_name in splits:
+        if split_name not in dataset:
+            continue
+        for row_index, row in enumerate(dataset[split_name]):
+            times = list(row.get("time_since_start") or [])
+            types = list(row.get("type_text") or row.get("type_event") or [])
+            size = min(len(times), len(types))
+            events = []
+            for index in range(size):
+                event_type = str(types[index])
+                event_types.add(event_type)
+                events.append(
+                    Event(
+                        event_type=event_type,
+                        timestamp=origin + float(times[index]) * unit_seconds,
+                    )
+                )
+            if not events:
+                continue
+            sequence_id = row.get("seq_idx", row_index)
+            splits[split_name].append(
+                EventSequence(
+                    user_id="{}:{}:{}".format(name, split_name, sequence_id),
+                    events=events,
+                    label=None,
+                    metadata={
+                        "source_split": split_name,
+                        "description": row.get("description"),
+                        "time_unit_seconds": unit_seconds,
+                    },
+                )
+            )
+    return splits, {
+        "event_types": sorted(event_types),
+        "feature_fields": [],
+        "profile_fields": [],
+        "natural_positive_rate": None,
+        "used_positive_rate": None,
+        "num_entities_total": sum(len(values) for values in splits.values()),
+        "num_rows": sum(
+            len(sequence.events) for values in splits.values() for sequence in values
+        ),
+    }
 
 
 def _build_synthetic(config: ConversionConfig):

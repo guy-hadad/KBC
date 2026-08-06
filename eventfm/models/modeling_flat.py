@@ -65,24 +65,94 @@ class FourierTimeFeatures(nn.Module):
         return self.projection(features)
 
 
+class Time2VecFeatures(nn.Module):
+    """Learned linear and periodic coordinates (Kazemi et al., 2019)."""
+
+    def __init__(self, hidden_size: int) -> None:
+        super().__init__()
+        periodic = max(1, hidden_size - 1)
+        self.linear_weight = nn.Parameter(torch.ones(1))
+        self.linear_bias = nn.Parameter(torch.zeros(1))
+        self.periodic_weight = nn.Parameter(torch.randn(periodic))
+        self.periodic_bias = nn.Parameter(torch.zeros(periodic))
+
+    def forward(self, value: torch.Tensor) -> torch.Tensor:
+        linear = value.unsqueeze(-1) * self.linear_weight + self.linear_bias
+        periodic = torch.sin(
+            value.unsqueeze(-1) * self.periodic_weight + self.periodic_bias
+        )
+        return torch.cat([linear, periodic], dim=-1)
+
+
+class FunctionalTimeFeatures(nn.Module):
+    """Learned continuous radial kernels followed by a projection."""
+
+    def __init__(self, hidden_size: int, num_kernels: int = 32) -> None:
+        super().__init__()
+        self.centers = nn.Parameter(torch.linspace(0.0, 20.0, num_kernels))
+        self.log_widths = nn.Parameter(torch.zeros(num_kernels))
+        self.projection = nn.Linear(num_kernels, hidden_size)
+
+    def forward(self, value: torch.Tensor) -> torch.Tensor:
+        distance = value.unsqueeze(-1) - self.centers
+        kernels = torch.exp(-0.5 * distance.square() * torch.exp(-2.0 * self.log_widths))
+        return self.projection(kernels)
+
+
+def _continuous_rope(hidden: torch.Tensor, coordinate: torch.Tensor) -> torch.Tensor:
+    """Apply rotary coordinates directly to event embeddings."""
+
+    pair_width = (hidden.shape[-1] // 2) * 2
+    if pair_width == 0:
+        return hidden
+    paired = hidden[..., :pair_width].reshape(*hidden.shape[:-1], pair_width // 2, 2)
+    frequencies = torch.exp(
+        torch.linspace(
+            0.0,
+            -math.log(10000.0),
+            pair_width // 2,
+            device=hidden.device,
+            dtype=hidden.dtype,
+        )
+    )
+    angles = coordinate.unsqueeze(-1) * frequencies
+    cosine, sine = torch.cos(angles), torch.sin(angles)
+    first = paired[..., 0] * cosine - paired[..., 1] * sine
+    second = paired[..., 0] * sine + paired[..., 1] * cosine
+    rotated = torch.stack([first, second], dim=-1).reshape(*hidden.shape[:-1], pair_width)
+    return torch.cat([rotated, hidden[..., pair_width:]], dim=-1)
+
+
 class FlatEventEmbedding(nn.Module):
     """Mark + feature-value + time embedding for one event."""
 
     def __init__(self, config: FlatEventConfig) -> None:
         super().__init__()
         self.config = config
-        self.mark_embeddings = nn.Embedding(config.num_event_types, config.hidden_size)
+        self.mark_embeddings = nn.Embedding(config.num_input_event_types, config.hidden_size)
         self.value_embeddings = nn.Embedding(
             config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id
         )
         self.field_embeddings = nn.Embedding(config.num_feature_fields, config.hidden_size)
         if config.use_time_features:
-            self.delta_encoder = FourierTimeFeatures(
-                config.hidden_size, config.time_encoding_frequencies
-            )
-            self.age_encoder = FourierTimeFeatures(
-                config.hidden_size, config.time_encoding_frequencies
-            )
+            if config.time_feature_mode == "time2vec":
+                self.delta_encoder = Time2VecFeatures(config.hidden_size)
+                self.age_encoder = Time2VecFeatures(config.hidden_size)
+            elif config.time_feature_mode == "functional":
+                self.delta_encoder = FunctionalTimeFeatures(config.hidden_size)
+                self.age_encoder = FunctionalTimeFeatures(config.hidden_size)
+            elif config.time_feature_mode == "bucket":
+                self.delta_encoder = nn.Embedding(config.num_time_buckets, config.hidden_size)
+                self.age_encoder = nn.Embedding(config.num_time_buckets, config.hidden_size)
+            else:
+                self.delta_encoder = FourierTimeFeatures(
+                    config.hidden_size, config.time_encoding_frequencies
+                )
+                self.age_encoder = FourierTimeFeatures(
+                    config.hidden_size, config.time_encoding_frequencies
+                )
+        if config.type_conditioned_features:
+            self.type_value_gate = nn.Embedding(config.num_input_event_types, config.hidden_size)
         if config.use_calendar_features:
             self.calendar_encoder = nn.Sequential(
                 nn.Linear(config.calendar_feature_size, config.hidden_size),
@@ -107,10 +177,27 @@ class FlatEventEmbedding(nn.Module):
             max=self.config.num_feature_fields - 1
         )
         values = self.value_embeddings(feature_value_ids) + self.field_embeddings(field_ids)
-        hidden = hidden + values.sum(dim=2)
+        values = values.sum(dim=2)
+        if self.config.type_conditioned_features:
+            values = values * torch.sigmoid(self.type_value_gate(event_type_ids))
+        hidden = hidden + values
 
         if self.config.use_time_features:
-            hidden = hidden + self.delta_encoder(delta_log) + self.age_encoder(time_since_start)
+            mode = self.config.time_feature_mode
+            if mode == "raw-gap":
+                raw_days = torch.expm1(delta_log).clamp(max=3650 * 86400.0) / 86400.0
+                hidden = hidden + self.delta_encoder(raw_days)
+            elif mode == "log-gap":
+                hidden = hidden + self.delta_encoder(delta_log)
+            elif mode == "bucket":
+                scale = max(1, self.config.num_time_buckets - 1)
+                delta_ids = (delta_log / 24.0 * scale).long().clamp(0, scale)
+                age_ids = (time_since_start / 24.0 * scale).long().clamp(0, scale)
+                hidden = hidden + self.delta_encoder(delta_ids) + self.age_encoder(age_ids)
+            else:
+                hidden = hidden + self.delta_encoder(delta_log) + self.age_encoder(time_since_start)
+            if mode == "continuous-rope":
+                hidden = _continuous_rope(hidden, time_since_start)
         if self.config.use_calendar_features:
             hidden = hidden + self.calendar_encoder(calendar_features)
         return self.dropout(self.layer_norm(hidden))
@@ -134,9 +221,42 @@ class _GruMixer(nn.Module):
             dropout=config.dropout if config.num_hidden_layers > 1 else 0.0,
         )
 
-    def forward(self, hidden: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        attention_mask: torch.Tensor,
+        delta_log: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        del delta_log
         output, _ = self.rnn(hidden)
         return output * attention_mask.unsqueeze(-1).to(output.dtype)
+
+
+class _ContinuousTimeGruMixer(nn.Module):
+    """Continuous-time recurrent state with learned exponential decay."""
+
+    def __init__(self, config: FlatEventConfig) -> None:
+        super().__init__()
+        self.cell = nn.GRUCell(config.hidden_size, config.hidden_size)
+        self.decay = nn.Linear(1, config.hidden_size)
+
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        attention_mask: torch.Tensor,
+        delta_log: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        batch, length, width = hidden.shape
+        state = hidden.new_zeros(batch, width)
+        outputs = []
+        gaps = hidden.new_zeros(batch, length) if delta_log is None else delta_log
+        for index in range(length):
+            decay = torch.exp(-F.softplus(self.decay(gaps[:, index : index + 1])))
+            candidate = self.cell(hidden[:, index], state * decay)
+            valid = attention_mask[:, index : index + 1].to(candidate.dtype)
+            state = candidate * valid + state * (1.0 - valid)
+            outputs.append(state)
+        return torch.stack(outputs, dim=1)
 
 
 class _BertMixer(nn.Module):
@@ -145,6 +265,7 @@ class _BertMixer(nn.Module):
     def __init__(self, config: FlatEventConfig, causal: bool = False) -> None:
         super().__init__()
         self.causal = causal
+        self.use_position_embeddings = config.use_position_embeddings
         self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
         self.encoder = BertEncoder(
             BertConfig(
@@ -161,12 +282,19 @@ class _BertMixer(nn.Module):
             )
         )
 
-    def forward(self, hidden: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        attention_mask: torch.Tensor,
+        delta_log: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        del delta_log
         length = hidden.shape[1]
         positions = torch.arange(length, device=hidden.device).clamp(
             max=self.position_embeddings.num_embeddings - 1
         )
-        hidden = hidden + self.position_embeddings(positions)
+        if self.use_position_embeddings:
+            hidden = hidden + self.position_embeddings(positions)
         extended = _extended_mask(attention_mask, hidden.dtype)
         if self.causal:
             causal = torch.tril(torch.ones(length, length, device=hidden.device, dtype=torch.bool))
@@ -201,7 +329,13 @@ class _Gpt2Mixer(nn.Module):
         # Event embeddings are supplied directly, so the token table is unused.
         self.transformer.wte = nn.Identity()
 
-    def forward(self, hidden: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        attention_mask: torch.Tensor,
+        delta_log: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        del delta_log
         return self.transformer(
             inputs_embeds=hidden, attention_mask=attention_mask, return_dict=True
         ).last_hidden_state
@@ -232,19 +366,69 @@ class _MambaMixer(nn.Module):
         self.mamba = MambaModel(mamba_config)
         self.mamba.embeddings = nn.Identity()
 
-    def forward(self, hidden: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        attention_mask: torch.Tensor,
+        delta_log: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        del delta_log
         output = self.mamba(
             inputs_embeds=hidden, use_cache=False, return_dict=True
         ).last_hidden_state
         return output * attention_mask.unsqueeze(-1).to(output.dtype)
 
 
+class _CoticMixer(nn.Module):
+    """Dilated temporal convolutions modulated by irregular inter-event gaps."""
+
+    def __init__(self, config: FlatEventConfig) -> None:
+        super().__init__()
+        self.layers = nn.ModuleList(
+            [
+                nn.Conv1d(
+                    config.hidden_size,
+                    config.hidden_size,
+                    kernel_size=3,
+                    padding=2**index,
+                    dilation=2**index,
+                    groups=config.hidden_size,
+                )
+                for index in range(config.num_hidden_layers)
+            ]
+        )
+        self.mixers = nn.ModuleList(
+            [nn.Conv1d(config.hidden_size, config.hidden_size, 1) for _ in self.layers]
+        )
+        self.decay = nn.Parameter(torch.zeros(config.hidden_size))
+
+    def forward(
+        self,
+        hidden: torch.Tensor,
+        attention_mask: torch.Tensor,
+        delta_log: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        output = hidden.transpose(1, 2)
+        gaps = hidden.new_zeros(hidden.shape[:2]) if delta_log is None else delta_log
+        temporal_decay = torch.exp(
+            -F.softplus(self.decay)[None, :, None] * gaps[:, None, :]
+        )
+        for convolution, mixer in zip(self.layers, self.mixers):
+            convolved = convolution(output)[..., : output.shape[-1]]
+            output = output + F.gelu(mixer(convolved)) * temporal_decay
+        output = output.transpose(1, 2)
+        return output * attention_mask.unsqueeze(-1).to(output.dtype)
+
+
 MIXERS = {
     "gru": lambda config: _GruMixer(config),
+    "nhp": lambda config: _ContinuousTimeGruMixer(config),
     "bert": lambda config: _BertMixer(config, causal=False),
     "bert-causal": lambda config: _BertMixer(config, causal=True),
+    "attnhp": lambda config: _BertMixer(config, causal=True),
     "gpt2": lambda config: _Gpt2Mixer(config),
     "mamba": lambda config: _MambaMixer(config),
+    "cotic": lambda config: _CoticMixer(config),
 }
 
 
@@ -307,6 +491,26 @@ class LogNormalMixtureHead(nn.Module):
         return -torch.logsumexp(log_weights + log_prob, dim=-1)
 
 
+class ExponentialIntensityHead(nn.Module):
+    """Constant conditional intensity between events, with a proper likelihood."""
+
+    def __init__(self, hidden_size: int) -> None:
+        super().__init__()
+        self.projection = nn.Linear(hidden_size, 1)
+
+    def _rate(self, hidden: torch.Tensor) -> torch.Tensor:
+        # Rate is events/second; the bias starts near one event per six hours.
+        return F.softplus(self.projection(hidden).squeeze(-1) - 10.0).clamp(min=1e-8)
+
+    def mean_log_delta(self, hidden: torch.Tensor) -> torch.Tensor:
+        return torch.log1p(1.0 / self._rate(hidden))
+
+    def nll(self, hidden: torch.Tensor, target_log_delta: torch.Tensor) -> torch.Tensor:
+        delta_seconds = torch.expm1(target_log_delta).clamp(min=0.0, max=1e12)
+        rate = self._rate(hidden)
+        return rate * delta_seconds - torch.log(rate)
+
+
 class FlatPreTrainedModel(PreTrainedModel):
     config_class = FlatEventConfig
     base_model_prefix = "flat"
@@ -336,6 +540,14 @@ class FlatEventBackbone(nn.Module):
                 "Unknown backbone `{}`. Available: {}".format(config.backbone, sorted(MIXERS))
             )
         self.mixer = MIXERS[config.backbone](config)
+        self.adapter = None
+        if config.adapter_size > 0:
+            self.adapter = nn.Sequential(
+                nn.LayerNorm(config.hidden_size),
+                nn.Linear(config.hidden_size, config.adapter_size),
+                nn.GELU(),
+                nn.Linear(config.adapter_size, config.hidden_size),
+            )
 
     def forward(
         self,
@@ -353,7 +565,9 @@ class FlatEventBackbone(nn.Module):
             time_since_start=time_since_start,
             calendar_features=calendar_features,
         )
-        hidden = self.mixer(hidden, attention_mask)
+        hidden = self.mixer(hidden, attention_mask, delta_log=delta_log)
+        if self.adapter is not None:
+            hidden = hidden + self.adapter(hidden)
 
         mask = attention_mask.unsqueeze(-1).to(hidden.dtype)
         lengths = attention_mask.sum(dim=1).clamp(min=1)
@@ -414,6 +628,8 @@ class FlatForNextEventPrediction(FlatPreTrainedModel):
             self.time_head = LogNormalMixtureHead(
                 config.hidden_size, config.num_time_mixture_components
             )
+        elif config.time_loss == "exponential_intensity":
+            self.time_head = ExponentialIntensityHead(config.hidden_size)
         else:
             self.time_head = nn.Linear(config.hidden_size, 1)
         self.post_init()
@@ -421,7 +637,7 @@ class FlatForNextEventPrediction(FlatPreTrainedModel):
         # time prior has to be re-applied afterwards.
         if isinstance(self.time_head, LogNormalMixtureHead):
             self.time_head.reset_time_prior()
-        else:
+        elif isinstance(self.time_head, nn.Linear):
             self.time_head.bias.data.fill_(math.log1p(6.0 * 3600.0))
 
     def forward(
@@ -450,6 +666,8 @@ class FlatForNextEventPrediction(FlatPreTrainedModel):
 
         if isinstance(self.time_head, LogNormalMixtureHead):
             predicted_delta = self.time_head.mean(hidden)
+        elif isinstance(self.time_head, ExponentialIntensityHead):
+            predicted_delta = self.time_head.mean_log_delta(hidden)
         else:
             predicted_delta = self.time_head(hidden).squeeze(-1)
 
@@ -460,6 +678,9 @@ class FlatForNextEventPrediction(FlatPreTrainedModel):
             type_loss = F.cross_entropy(type_logits, next_event_type_labels.long())
             target = next_delta_log.to(dtype=predicted_delta.dtype)
             if isinstance(self.time_head, LogNormalMixtureHead):
+                time_nll = self.time_head.nll(hidden, target)
+                time_loss = time_nll.mean()
+            elif isinstance(self.time_head, ExponentialIntensityHead):
                 time_nll = self.time_head.nll(hidden, target)
                 time_loss = time_nll.mean()
             else:

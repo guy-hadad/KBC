@@ -155,22 +155,25 @@ transform parameters. Evaluate linear and log spaces for `256`, `128-128`,
 | Data size | at least three nested pretraining sizes evaluated on one fixed test set | Test saturation and PEFT bottlenecks. |
 | Time space | raw/linear versus a pre-registered log transform | Match smooth, heavy-tailed, spiky, and multimodal interval distributions. |
 
-## EventFM integration and current gap
+## EventFM integration and fidelity status
 
-The existing `language-tpp` entry is an **approximation**, not an implementation
-of this full study. It currently serializes `log1p(delta_seconds)` as four byte
-tokens, uses a different compact prompt, pools the final hidden state, and
-decodes time through the repository's shared log-normal-mixture head. The GEM
-paper's pure-token models instead autoregressively generate and parse time
-tokens. These conditions must remain separate in tables:
+The original `language-tpp` entry remains an approximation: it serializes
+`log1p(delta_seconds)` as four byte tokens but decodes time through the shared
+log-normal-mixture head. The 20 `gem-time-*` registry entries now separately
+implement pure next-event generation and parsing for every tokenizer listed
+above. They are marked approximations because the default SmolLM2 backbone and
+training budget differ from the paper recipe unless explicitly overridden.
+These conditions remain separate in tables:
 
 - `language-tpp-head`: current byte-token input plus specialized time head;
-- `gem-token-*`: pure causal generation using the tokenizer variants above;
+- `gem-time-*`: pure causal generation using the tokenizer variants above;
 - `tpp-llm-continuous`: continuous-time embedding and TPP-specific head.
 
-Do not silently replace one with another. A useful factorial follow-up can
-cross selected tokenizers with both a generative decoder and a probabilistic
-time head, but that is an EventFM experiment rather than a reproduction.
+The runnable suites cover the complete tokenizer grid, template order,
+equal-event/equal-token contexts, small/larger LM capacity, anonymized event
+names, five public reference datasets, and the four banking datasets. Do not
+silently replace a generative tokenizer with a specialized time head; crossing
+the two is an EventFM follow-up rather than a GEM reproduction.
 
 ## Banking-specific screening protocol
 

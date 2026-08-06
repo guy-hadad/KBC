@@ -26,12 +26,15 @@ mm-tpp               Li et al., *Long-range modeling of multimodal event seqs*
 from eventfm.methods import (  # noqa: F401  (import for registration side effects)
     classic,
     coles,
+    gem_tokenization,
     llm_tpp,
     mambular,
     neural_tpp,
     nvidia_tfm,
     pragma,
+    representation_learning,
     tabformer,
+    time_ablation,
 )
 from eventfm.methods.base import (
     METHOD_REGISTRY,

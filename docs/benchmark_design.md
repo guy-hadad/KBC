@@ -14,8 +14,8 @@ uses the same fidelity vocabulary (`Implemented` / `Approximation`) defined in
 
 ## 1. What is being compared
 
-The project note surveys nine modelling directions. All of them are implemented
-and evaluated, plus two non-neural controls and a second PRAGMA variant:
+The completed legacy screen covers nine modelling directions, two non-neural
+controls, and a second PRAGMA variant:
 
 | Registry key | Paper / system | Family | What is distinctive |
 | --- | --- | --- | --- |
@@ -33,6 +33,10 @@ and evaluated, plus two non-neural controls and a second PRAGMA variant:
 | `tpp-llm` | Liu & Quan 2024 | LLM | Textual marks + continuous temporal embedding, LoRA |
 | `language-tpp` | Kong et al. 2026 | LLM | Δt serialised as byte tokens inside the prompt |
 | `mm-tpp` | Li et al. 2026 | LLM | Byte-token times + temporal-similarity compression |
+
+The broader paper programme now registers 62 runnable keys. See the generated
+[`research/implementation_manifest.md`](research/implementation_manifest.md)
+instead of extending this historical 14-row result description by hand.
 
 ### Keeping the comparison fair
 
@@ -73,7 +77,7 @@ All four are the open benchmarks named in section 3.1.5 of the project note.
 Full MBD is 69 GB; MBD-mini is the official 10 % client subsample with the same
 schema, and is what is used here.
 
-### What the conversion produces
+### What the legacy conversion produced
 
 | Dataset | Marks | Train | Val | Test | Mean events / seq | Natural pos. rate | Used pos. rate | Feature fields |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -82,9 +86,9 @@ schema, and is what is used here.
 | IBM AML (HI-Small) | 7 | 3 323 | 806 | 1 051 | 17.5 | 0.56 % | 20 % | 4 |
 | MBD-mini | 54 | 3 072 | 693 | 905 | 104.1 | 1.14 % | 20 % | 5 |
 
-BankSim needs no rebalancing — its customers are long-lived enough that 16.5 %
-of them see fraud in the held-out tail. The other three are rebalanced from
-well under 2 % up to 20 %. PaySim ends with only four marks because `DEBIT`
+BankSim needed no rebalancing — its customers are long-lived enough that 16.5 %
+of them see fraud in the held-out tail. The legacy pools for the other three
+were rebalanced from well under 2 % up to 20 %. PaySim ends with only four marks because `DEBIT`
 never appears on destination accounts that reach eight events.
 
 The two extremes are worth keeping in mind when reading the tables: PaySim has
@@ -135,11 +139,12 @@ forward-looking instead:
 
 The flag column is never an input feature in either case.
 
-Natural entity-level positive rates are low (0.4 %–1.6 %). Negatives are
-therefore downsampled to a 20 % positive rate, so that the smallest scaling
-points still contain positives. Both the natural and the used rate are recorded
-in each dataset's `meta.json`, and ROC-AUC / average precision are the headline
-metrics rather than accuracy.
+Natural entity-level positive rates are low (0.4 %–1.6 %). The current
+converter downsamples negatives in **training only**; validation and test retain
+natural prevalence. It records natural and used rates separately for every
+split. The published 624-cell architecture screen used an older globally
+downsampled conversion, so its average precision and operational classification
+metrics are not paper-grade natural-prevalence estimates.
 
 ### TPP — next event, marked
 
@@ -155,9 +160,14 @@ which half of the problem the model actually solved:
 
 ## 4. Splits and scaling curves
 
-Entities are assigned to train / validation / test by a stable hash of the
-entity id (20 % test, 15 % validation), so the split is identical across every
-method, sample size and rerun, and no entity ever appears in two splits.
+The default datasets assign entities to train / validation / test by a stable
+hash of entity id (20 % test, 15 % validation). The four `*_chrono` variants
+instead sort whole entities by their final observed timestamp and assign the
+newest histories to evaluation. Both policies are entity-disjoint.
+
+Rare-category vocabularies and numeric quantile boundaries are now fit on
+retained training histories only and applied unchanged to validation/test.
+Prepared split hashes and fitted artifacts are stored in `meta.json`.
 
 A scaling point of size *n* is a **stratified** subsample of the training split
 that preserves its label balance — without that, the smallest points would
@@ -173,12 +183,29 @@ and each writes one JSON file, so the grid runs as a SLURM array where a task
 that dies costs only its own slice and can be resubmitted without redoing
 finished work.
 
+The completed run split as follows:
+
+| Slice | Cells | Resource | Cost |
+| --- | ---: | --- | --- |
+| 11 non-LLM methods | 480 | 30-way CPU array | ~6 CPU-hours |
+| 3 LLM methods | 144 | 12-way RTX 3090 array | ~15 GPU-hours |
+
+All 624 completed with status `ok`.
+
+**One environment gotcha worth recording.** The installed torch is a CUDA 13
+build, which dropped Pascal (`sm_61`); on a GTX 1080 every cell dies with
+`no kernel image is available`. A node-level `--constraint` does *not* prevent
+this — the `*-pheno-*` nodes advertise both `rtx_3090` and `gtx_1080` features,
+satisfy the constraint, and then allocate the 1080. The GPU type has to be named
+in the gres request itself (`--gres=gpu:rtx_3090:1`). `slurm/run_benchmark_llm_array.sbatch`
+also runs a preflight kernel launch so a mis-scheduled job fails in seconds
+rather than caching a failure for every cell in its slice.
+
 ## 6. Known limitations
 
-Every entry except the two controls is labelled `Approximation` in the registry
-and in the generated tables, and each declares the specific way it departs from
-its cited recipe. `MethodSpec.__post_init__` refuses a registration that names a
-paper without disclosing a divergence, and a test locks that in, so the tables
+Every paper-named entry is labelled `Approximation` unless its recipe has been
+validated, and each declares the specific departure. `MethodSpec.__post_init__`
+refuses an approximation without a divergence, and tests lock that in, so tables
 cannot silently start reading as reproductions.
 
 
@@ -188,8 +215,11 @@ cannot silently start reading as reproductions.
 * Pretraining stages run on the same (small) training split as the downstream
   head, so they measure "does this objective help at this scale", not the
   large-corpus foundation-model regime the papers operate in.
-* The LM entries use a 135 M-parameter base model with a frozen backbone. The
-  original papers use billion-parameter models; absolute numbers are therefore
-  not comparable to the published ones, only to each other under equal budget.
+* The LM entries use a 135 M-parameter base model with a frozen backbone and
+  LoRA (1.8–2.2 M trainable parameters). The original papers use
+  billion-parameter models; absolute numbers are therefore not comparable to the
+  published ones, only to each other under equal budget. In the completed run
+  these three entries occupy three of the bottom four mean ranks — that is a
+  statement about the budget they were given here, not about the methods.
 * MBD-mini's dialog and geo streams are not used — only the transaction stream —
   so the multimodal aspect of MM-TPP is exercised on time and text, not images.

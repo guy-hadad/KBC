@@ -4,6 +4,16 @@ This protocol is the contract for results intended for a conference paper. It
 extends the current architecture-screening benchmark without invalidating its
 existing runs. Deviations must be recorded in run metadata and in the paper.
 
+The executable mapping is in
+[`experiment_execution.md`](experiment_execution.md). The current code enforces
+train-only tabular preprocessing, training-only rebalancing, natural evaluation
+prevalence, hash and chronological whole-entity splits, frozen/adapter/full
+adaptation, named ablation variants, source-only leave-one-dataset-out pools,
+five-seed headline grids, and provenance-rich per-cell artifacts. Event-level
+labels, censored downstream survival endpoints, protected subgroup analyses,
+and per-example paired-bootstrap artifacts still depend on defensible dataset
+targets and are not implied by registry coverage.
+
 ## 1. Research questions and hypotheses
 
 | ID | Research question | Pre-registered hypothesis |
@@ -270,4 +280,3 @@ A table is not paper-ready until:
 - every method name links to an exact implementation/configuration;
 - approximation versus faithful reproduction is visible in the caption;
 - the table can be regenerated from immutable per-run artifacts.
-

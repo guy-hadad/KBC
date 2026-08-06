@@ -122,15 +122,21 @@ class Coles(FlatMethod):
             return
 
         device = resolve_device()
-        config = self.build_config()
+        config = model.backbone.config if hasattr(model, "backbone") else self.build_config()
         encoder = FlatEventBackbone(config).to(device)
+        # Hybrid objectives continue from the encoder learned by the preceding
+        # stage instead of silently replacing it with a fresh random encoder.
+        if hasattr(model, "backbone"):
+            encoder.load_state_dict(model.backbone.state_dict())
         projection = nn.Sequential(
             nn.Linear(config.hidden_size, config.hidden_size),
             nn.GELU(),
             nn.Linear(config.hidden_size, config.hidden_size),
         ).to(device)
 
-        sequences = JsonlEventDataset(context.train_path).sequences
+        sequences = JsonlEventDataset(
+            str(context.extra.get("pretrain_path", context.train_path))
+        ).sequences
         dataset = _SubSequenceView(
             sequences,
             num_views=self.num_views,
@@ -142,7 +148,7 @@ class Coles(FlatMethod):
                 tokenizer=context.tokenizer,
                 task="pretrain",
                 max_events=context.training.max_events,
-                feature_fields=context.dataset.feature_fields,
+                feature_fields=context.model_feature_fields,
             )
         )
         loader = torch.utils.data.DataLoader(

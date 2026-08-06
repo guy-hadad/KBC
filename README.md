@@ -5,9 +5,10 @@ Foundation Model for Event Prediction") into a runnable comparison: **every
 architecture the note discusses, evaluated on every open benchmark it names, on
 both of the tasks it cares about.**
 
-* **What** — 12 architectures plus 2 non-neural controls.
-* **Where** — the four open benchmarks from §3.1.5: BankSim, PaySim,
-  IBM AML (HI-Small) and MBD-mini.
+* **What** — the completed 14-method architecture screen, expanded to 62
+  runnable method/ablation keys and named paper experiment suites.
+* **Where** — four banking benchmarks, four chronological variants, five
+  GEM/TPP-LLM reference datasets, and a synthetic smoke fixture.
 * **How measured** — binary sequence **classification** (a forward-looking
   business label) and a marked **temporal point process** task (predict the next
   event type *and* the time until it happens).
@@ -30,6 +31,11 @@ the training sets are in the low thousands of sequences, several named methods
 are controlled approximations, and pretraining shares the same small corpus as
 downstream training.
 
+The exhaustive live inventory is in
+**[docs/research/implementation_manifest.md](docs/research/implementation_manifest.md)**;
+the commands and experiment map are in
+**[docs/research/experiment_execution.md](docs/research/experiment_execution.md)**.
+
 ---
 
 ## Results
@@ -40,8 +46,18 @@ Generated tables and figures live in **[docs/benchmark/](docs/benchmark/)**:
 | --- | --- |
 | [`results.md`](docs/benchmark/results.md) | all methods per dataset and task, both tasks |
 | [`results.csv`](docs/benchmark/results.csv) | every cell: metric × method × dataset × sample size |
-| `figures/by_method/` | **one scaling curve per method**, its four datasets overlaid |
-| `figures/by_dataset/` | per dataset, small multiples faceted by architecture family |
+| `figures/by_method/` | **one scaling curve per method**, its four datasets overlaid (160 files) |
+| `figures/by_dataset/` | per dataset, small multiples faceted by architecture family (64 files) |
+
+> **Coverage: complete.** All 624 cells ran, none failed — 480 non-LLM on a CPU
+> array (~6 CPU-hours) and 144 LLM cells on RTX 3090s (~15 GPU-hours).
+
+> **Legacy-result warning.** These 624 results predate the current paper-grade
+> converter. Their prepared PaySim/IBM-AML/MBD evaluation pools were affected by
+> global negative downsampling. They remain a reproducible architecture screen,
+> but must not be presented as natural-prevalence headline results. Rebuild with
+> `python scripts/prepare_data.py --force` and rerun a named research suite for
+> publication-facing tables.
 
 Figure filenames are deterministic:
 
@@ -54,6 +70,136 @@ with `<metric>` one of `auc`, `average_precision`, `accuracy`, `macro_f1`
 (classification) or `next_type_accuracy`, `next_type_macro_f1`,
 `delta_log_rmse`, `delta_log_mae` (TPP). Each figure ships a light and a dark
 variant.
+
+### What the full run says
+
+**624 cells complete — 14 methods × 4 datasets × 2 tasks × 6 sample sizes, zero
+failures.** Best method per cell at the largest sample point, against the
+relevant non-neural control:
+
+| Dataset | Task | Best | Score | Control | Best LLM entry |
+| --- | --- | --- | ---: | ---: | --- |
+| BankSim | classification (AUC) | `nvidia-tfm` | 0.801 | 0.757 | `tpp-llm` 0.652 |
+| PaySim | classification (AUC) | `mambular` | 0.546 | 0.532 | `mm-tpp` 0.539 |
+| IBM AML | classification (AUC) | `mambular` | 0.705 | 0.605 | `language-tpp` 0.600 |
+| MBD-mini | classification (AUC) | `ntpp-gru` | 0.717 | 0.660 | `language-tpp` 0.699 |
+| BankSim | TPP (next-type acc.) | `markov` | **0.850** | 0.850 | `tpp-llm` 0.844 |
+| PaySim | TPP (next-type acc.) | `tabgpt` | 0.546 | 0.543 | `mm-tpp` 0.531 |
+| IBM AML | TPP (next-type acc.) | `ntpp-gru` | 0.629 | 0.466 | `tpp-llm` 0.609 |
+| MBD-mini | TPP (next-type acc.) | `language-tpp` | **0.538** | 0.462 | `language-tpp` 0.538 |
+
+Mean rank over all eight (dataset × task) cells, 1 = best:
+
+| Method | Family | Mean rank |
+| --- | --- | ---: |
+| `nvidia-tfm` | tabular transformer | 5.0 |
+| `pragma-mlm` | hierarchical | 5.0 |
+| `ntpp-gru` | neural TPP | 5.5 |
+| `pragma` | hierarchical | 5.6 |
+| `thp` | neural TPP | 6.0 |
+| `mambular` | state space | 6.2 |
+| `tabgpt` | tabular transformer | 6.9 |
+| `coles` | contrastive | 7.2 |
+| `tabbert` | tabular transformer | 7.9 |
+| `language-tpp` | LLM | 8.0 |
+| `tpp-llm` | LLM | 9.6 |
+| `mm-tpp` | LLM | 10.2 |
+
+(`markov` 7.2 and `count-logistic` 8.2 are ranked over their four cells each,
+since each control covers only one task.)
+
+Five things stand out, and three of them are cautionary:
+
+1. **No architecture wins everywhere.** The best method differs across all eight
+   cells, and the spread among the leading neural methods is smaller than their
+   gap to the controls. Mean ranks from 5.0 to 6.2 cover six different families.
+   At this scale the benchmark does not identify a preferred backbone.
+2. **The LLM entries are the weakest group**, occupying three of the bottom four
+   mean ranks despite costing ~15 GPU-hours against ~6 CPU-hours for everything
+   else. Read this as a statement about *budget*, not about the papers: a frozen
+   135M base with LoRA is far below the scale those methods were designed for.
+3. **Among the LLM entries, time-in-the-prompt beats time-on-the-side.**
+   `language-tpp` (byte-token intervals) outranks `tpp-llm` (continuous temporal
+   embedding) 8.0 to 9.6, and takes the top spot outright on MBD-mini TPP. That
+   is the tokenisation question in the project note getting a directional
+   answer. MM-TPP's compression does not pay off here — histories are short
+   enough that context length was never the binding constraint.
+4. **On BankSim's TPP task nothing beats a first-order Markov chain** (0.850 ≈
+   the majority-mark rate). The neural models do win on macro F1 and time error,
+   which is why those are reported separately.
+5. **PaySim barely discriminates** (best AUC 0.546, nearly flat in *n*). Four
+   marks and ~11 events per sequence is not enough signal; it is included
+   because the project note names it.
+
+Where the models clearly earn their keep is IBM AML and MBD-mini on the TPP
+task: **+0.16** and **+0.08** next-type accuracy over Markov, with curves still
+rising at n=2048.
+
+### Scaling laws
+
+Each curve's error is fitted to **`E(N) = a · N^-b`**, where `N` is the number of
+labelled training sequences. **`b` is the data-scaling exponent** — how fast the
+error falls as data is added. This ranks methods by *data efficiency* rather
+than by score at one sample size, which is the more relevant question for a
+foundation model. Full table in
+[`docs/benchmark/scaling_exponents.md`](docs/benchmark/scaling_exponents.md).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/benchmark/figures/scaling_laws/exponents__classification.dark.svg">
+  <img src="docs/benchmark/figures/scaling_laws/exponents__classification.svg" alt="Fitted data-scaling exponent per method on the classification task, one dot per dataset">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/benchmark/figures/scaling_laws/exponents__tpp.dark.svg">
+  <img src="docs/benchmark/figures/scaling_laws/exponents__tpp.svg" alt="Fitted data-scaling exponent per method on the TPP task, one dot per dataset">
+</picture>
+
+Mean exponent over the fits that pass an `R² ≥ 0.70` gate (count in brackets;
+higher = error falls faster with data):
+
+| Classification (`1 − AUC`) | b | | TPP (`1 − next-type acc.`) | b |
+| --- | ---: | --- | --- | ---: |
+| `nvidia-tfm` | 0.136 [3] | | `tpp-llm` | 0.073 [3] |
+| `tabgpt` | 0.132 [3] | | `nvidia-tfm` | 0.068 [3] |
+| `language-tpp` | 0.129 [3] | | `ntpp-gru` | 0.061 [4] |
+| `pragma` | 0.129 [1] | | `language-tpp` | 0.061 [3] |
+| `thp` | 0.127 [2] | | `mm-tpp` | 0.060 [3] |
+| `tabbert` | 0.124 [3] | | `coles` | 0.059 [4] |
+| `ntpp-gru` | 0.115 [3] | | `thp` | 0.057 [3] |
+| `coles` | 0.098 [2] | | `pragma-mlm` | 0.055 [4] |
+| `mambular` | 0.085 [3] | | `mambular` | 0.054 [3] |
+| `pragma-mlm` | 0.076 [1] | | `tabgpt` | 0.049 [3] |
+| `mm-tpp` | 0.058 [1] | | `pragma` | 0.047 [4] |
+| **`count-logistic`** | **0.056 [1]** | | `tabbert` | 0.041 [4] |
+| `tpp-llm` | 0.051 [2] | | **`markov`** | **0.004 [3]** |
+
+Reading these:
+
+* **The Markov control is the flattest thing in the benchmark** — `b = 0.004`,
+  essentially zero, and exactly `0.000` on two datasets. It does not improve
+  with data at all, which is what a first-order transition table should do once
+  it has seen enough transitions. That reframes its BankSim win: it is not
+  *learning* better, the task is just easy to hit with a majority rule. Every
+  neural method has an order of magnitude more slope.
+* **Scaling rate and final score rank differently, and the LLM entries are the
+  clearest case.** `tpp-llm` has the *steepest* TPP exponent (0.073) while
+  sitting 12th of 13 on absolute score, and `language-tpp` is 3rd-fastest on
+  classification despite a near-bottom AUC. They start badly and close fast —
+  the profile of methods that are under-trained at this budget rather than
+  unsuited to the problem. `mambular` is the mirror image: strong absolute
+  scores, middling slope.
+* **Classification scales about twice as fast as the TPP task** (`b ≈ 0.12–0.14`
+  vs `0.05–0.07`). More labelled clients helps a sequence-level label much more
+  than it helps next-mark prediction, where the mark distribution is the binding
+  constraint.
+* **PaySim fails the fit gate for nearly every method on classification**, and
+  several of its exponents are *negative* — error rising with data. That is the
+  signature of a task with no learnable signal, not of a bad model, and it
+  corroborates the flat AUC curves above. It is why the table reports a
+  reliable-only mean alongside the raw one.
+* Exponents are fitted on six points, so read them as a **local slope over the
+  measured range**, not an asymptotic claim. Bracketed counts below 3 (e.g.
+  `pragma` at [1]) rest on a single dataset and should not carry weight.
 
 ### Method scaling curves, at a glance
 
@@ -71,12 +217,12 @@ variant.
 
 ## The method zoo
 
-> **Fidelity matters here.** `Implemented` marks the two controls, which have no
-> paper to be faithful to. Every other entry is an `Approximation`: it preserves
-> the central comparison but differs materially from the cited recipe, usually
-> in scale or in the pretraining corpus. Each one declares its divergence in the
-> registry, which is enforced by a test and surfaced in `results.csv`. **A row
-> named after a paper is not a reproduction of that paper** — see
+> **Fidelity matters here.** In this historical 14-method table, `Implemented`
+> marks the two non-neural controls and every named architecture is an
+> `Approximation`. The expanded registry also contains controlled implemented
+> baselines and ablation conditions. Each key declares its status and divergence,
+> enforced by tests and surfaced in result artifacts. **A row named after a
+> paper is not automatically a reproduction of that paper** — see
 > [docs/research/method_catalog.md](docs/research/method_catalog.md).
 
 | Key | Paper / system | Family | Fidelity |
@@ -149,6 +295,14 @@ sbatch slurm/run_benchmark_array.sbatch
 
 # 4. tables and scaling figures
 python scripts/aggregate_results.py
+```
+
+For the expanded programme:
+
+```bash
+python scripts/prepare_data.py --paper --force
+python scripts/run_experiments.py --list-suites
+python scripts/run_experiments.py --suite paper-headline --list
 ```
 
 `scripts/run_benchmark.py --all --list` prints the grid. `--skip-gpu-only`
