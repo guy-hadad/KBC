@@ -1,6 +1,6 @@
 # Full results: large-dataset scaling campaign
 
-Every method, sample size and metric on full MBD, Synthea EHR and Amazon Beauty 2014. Generated 2026-09-17 from [`results.csv`](results.csv) (3013 cells) by [`make_full_results.py`](make_full_results.py).
+Every method, sample size, metric and scaling fit on full MBD, Synthea EHR and Amazon Beauty 2014. Generated 2026-09-17 from [`results.csv`](results.csv) (3013 cells) by [`make_full_results.py`](make_full_results.py).
 
 **Interim.** The campaign is not closed. Cells still missing show as `—`. See [`../research/campaign_status.md`](../research/campaign_status.md) for what remains.
 
@@ -23,7 +23,103 @@ How to read the tables:
 | Amazon Beauty 2014 | classification | 18 | 10 (64–34023) | 417 |
 | Amazon Beauty 2014 | tpp | 17 | 10 (64–34023) | 382 |
 
-Contents: [MBD (full)](#mbd-full) · [Synthea EHR](#synthea-ehr) · [Amazon Beauty 2014](#amazon-beauty-2014)
+Contents: [MBD (full)](#mbd-full) · [Synthea EHR](#synthea-ehr) · [Amazon Beauty 2014](#amazon-beauty-2014) · [Scaling analysis](#scaling-analysis)
+
+## Scaling analysis
+
+Each curve's error is fitted to `E(N) = a · N^-b`, where `N` is the number of training sequences, using the seed means at each size. **`b` is the slope on log-log axes: how fast the error falls as data is added.** Larger `b` means the method is still converting data into accuracy. `b` near zero means it has flattened. Read `b` as a local slope over the measured range, not an asymptotic claim.
+
+`*` marks a fit with `R² < 0.70` or fewer than four points, which should not be read as a scaling rate. `Mean b (reliable)` averages only the unflagged fits, with their count in parentheses, and rows are sorted by it. The primary-metric exponents match [`scaling_exponents.md`](scaling_exponents.md). Per-dataset fit details, including `a`, `R²` and the spread of per-seed slopes, are under each dataset below.
+
+### Classification — `b` fitted on 1 − ROC-AUC
+
+| Method | Family | MBD (full) | Synthea EHR | Amazon Beauty 2014 | Mean b (all) | Mean b (reliable) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Transaction autoencoder | reconstruction | 0.069 | 0.197 | 0.112 | 0.126 | **0.126** (3) |
+| Transformer Hawkes | neural-tpp | 0.062 | 0.188 | 0.067 | 0.106 | **0.106** (3) |
+| NVIDIA TFM blueprint | tabular-transformer | 0.070 | 0.151 | 0.081 | 0.101 | **0.101** (3) |
+| Autoregressive transaction Transformer | generative | 0.068 | 0.148 | 0.082 | 0.099 | **0.099** (3) |
+| TabFormer (TabGPT) | tabular-transformer | 0.076 | 0.137 | 0.073 | 0.095 | **0.095** (3) |
+| Neural TPP (GRU) | neural-tpp | 0.051 | 0.144 | 0.087 | 0.094 | **0.094** (3) |
+| Supervised GRU | supervised | 0.051 | 0.144 | 0.086 | 0.094 | **0.094** (3) |
+| CoLES | contrastive | 0.042 | 0.138 | 0.095 | 0.092 | **0.092** (3) |
+| MM-TPP | llm | 0.101 | 0.131 | 0.024 | 0.085 | **0.085** (3) |
+| Language-TPP | llm | 0.088 | 0.137 | 0.025 | 0.083 | **0.083** (3) |
+| Mambular (Mamba SSM) | state-space | 0.050 | 0.129 | 0.047 | 0.075 | **0.075** (3) |
+| TPP-LLM | llm | 0.060 | 0.131 | 0.031 | 0.074 | **0.074** (3) |
+| PRAGMA + masked pretraining | hierarchical | 0.066 | 0.105 | 0.048 | 0.073 | **0.073** (3) |
+| Engineered features + GBDT | classic | 0.070 | 0.090 | 0.059 | 0.073 | **0.073** (3) |
+| PRAGMA | hierarchical | 0.065 | 0.096 | 0.043 | 0.068 | **0.068** (3) |
+| Transaction MLM | reconstruction | 0.037 | 0.091 | 0.046 | 0.058 | **0.058** (3) |
+| Count + logistic regression | classic | 0.064 | 0.084 | 0.014 | 0.054 | **0.054** (3) |
+| TabFormer (TabBERT) | tabular-transformer | 0.051 | 0.057 | 0.047 | 0.052 | **0.052** (3) |
+
+### Classification — `b` fitted on 1 − avg. precision
+
+| Method | Family | MBD (full) | Synthea EHR | Amazon Beauty 2014 | Mean b (all) | Mean b (reliable) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Transaction autoencoder | reconstruction | 0.003 | 0.043 | 0.067 | 0.037 | **0.037** (3) |
+| Supervised GRU | supervised | 0.002 | 0.046 | 0.055 | 0.034 | **0.034** (3) |
+| Neural TPP (GRU) | neural-tpp | 0.002 | 0.046 | 0.055 | 0.034 | **0.034** (3) |
+| Autoregressive transaction Transformer | generative | 0.002 | 0.041 | 0.057 | 0.033 | **0.033** (3) |
+| NVIDIA TFM blueprint | tabular-transformer | 0.002 | 0.039 | 0.055 | 0.032 | **0.032** (3) |
+| CoLES | contrastive | 0.002 | 0.036 | 0.059 | 0.032 | **0.032** (3) |
+| Transformer Hawkes | neural-tpp | 0.002 | 0.039 | 0.049 | 0.030 | **0.030** (3) |
+| PRAGMA + masked pretraining | hierarchical | 0.003 | 0.037 | 0.041 | 0.027 | **0.027** (3) |
+| TabFormer (TabGPT) | tabular-transformer | 0.002 | 0.031 | 0.047 | 0.027 | **0.027** (3) |
+| Engineered features + GBDT | classic | 0.002 | 0.027 | 0.045 | 0.025 | **0.025** (3) |
+| Transaction MLM | reconstruction | 0.002 | 0.035 | 0.035 | 0.024 | **0.024** (3) |
+| PRAGMA | hierarchical | 0.003 | 0.027 | 0.039 | 0.023 | **0.023** (3) |
+| Mambular (Mamba SSM) | state-space | 0.001 | 0.031 | 0.035 | 0.022 | **0.022** (3) |
+| TabFormer (TabBERT) | tabular-transformer | 0.002 | 0.025 | 0.036 | 0.021 | **0.021** (3) |
+| TPP-LLM | llm | 0.002 | 0.025 | 0.020 | 0.016 | **0.016** (3) |
+| Language-TPP | llm | 0.002 | 0.022 | 0.016 | 0.013 | **0.013** (3) |
+| MM-TPP | llm | 0.002 | 0.020 | 0.016 | 0.013 | **0.013** (3) |
+| Count + logistic regression | classic | 0.002 | 0.018 | 0.014 | 0.011 | **0.011** (3) |
+
+### Temporal point process (TPP) — `b` fitted on 1 − next-type acc.
+
+| Method | Family | MBD (full) | Synthea EHR | Amazon Beauty 2014 | Mean b (all) | Mean b (reliable) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| CoLES | contrastive | 0.052 | 0.042 | 0.067 | 0.053 | **0.053** (3) |
+| Supervised GRU | supervised | 0.056 | 0.042 | 0.051 | 0.050 | **0.050** (3) |
+| Neural TPP (GRU) | neural-tpp | 0.056 | 0.042 | 0.049 | 0.049 | **0.049** (3) |
+| TPP-LLM | llm | 0.052 | 0.037 | 0.051 | 0.047 | **0.047** (3) |
+| Autoregressive transaction Transformer | generative | 0.037 | 0.037 | 0.063 | 0.046 | **0.046** (3) |
+| Transaction autoencoder | reconstruction | 0.054 | 0.042 | 0.042 | 0.046 | **0.046** (3) |
+| NVIDIA TFM blueprint | tabular-transformer | 0.038 | 0.038 | 0.059 | 0.045 | **0.045** (3) |
+| Transaction MLM | reconstruction | 0.037 | 0.038 | 0.060 | 0.045 | **0.045** (3) |
+| Transformer Hawkes | neural-tpp | 0.036 | 0.037 | 0.055 | 0.043 | **0.043** (3) |
+| PRAGMA | hierarchical | 0.043 | 0.035 | 0.050 | 0.043 | **0.043** (3) |
+| MM-TPP | llm | 0.040 | 0.014 | 0.071 | 0.042 | **0.042** (3) |
+| TabFormer (TabBERT) | tabular-transformer | 0.028 | 0.032 | 0.065 | 0.042 | **0.042** (3) |
+| PRAGMA + masked pretraining | hierarchical | 0.043 | 0.038 | 0.043 | 0.041 | **0.041** (3) |
+| Mambular (Mamba SSM) | state-space | 0.027 | 0.040 | 0.053 | 0.040 | **0.040** (3) |
+| TabFormer (TabGPT) | tabular-transformer | 0.030 | 0.031 | 0.058 | 0.040 | **0.040** (3) |
+| Language-TPP | llm | 0.035 | 0.018 | 0.058 | 0.037 | **0.037** (3) |
+| Marked Markov chain | classic | 0.004* | 0.001* | 0.001* | 0.002 | — (0) |
+
+### Temporal point process (TPP) — `b` fitted on Time RMSE (log1p s)
+
+| Method | Family | MBD (full) | Synthea EHR | Amazon Beauty 2014 | Mean b (all) | Mean b (reliable) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Neural TPP (GRU) | neural-tpp | 0.040* | 0.069 | 0.024 | 0.044 | **0.047** (2) |
+| CoLES | contrastive | 0.038* | 0.070 | 0.023 | 0.043 | **0.046** (2) |
+| Transaction autoencoder | reconstruction | 0.039* | 0.069 | 0.023 | 0.044 | **0.046** (2) |
+| Supervised GRU | supervised | 0.040* | 0.069 | 0.023 | 0.044 | **0.046** (2) |
+| TPP-LLM | llm | 0.038 | 0.055 | 0.017 | 0.037 | **0.037** (3) |
+| Autoregressive transaction Transformer | generative | 0.024 | 0.054 | 0.022 | 0.033 | **0.033** (3) |
+| NVIDIA TFM blueprint | tabular-transformer | 0.024 | 0.052 | 0.021 | 0.033 | **0.033** (3) |
+| Transaction MLM | reconstruction | 0.022 | 0.052 | 0.022 | 0.032 | **0.032** (3) |
+| Mambular (Mamba SSM) | state-space | 0.018 | 0.051 | 0.020 | 0.030 | **0.030** (3) |
+| Transformer Hawkes | neural-tpp | 0.018 | 0.050 | 0.022 | 0.030 | **0.030** (3) |
+| PRAGMA | hierarchical | 0.035 | 0.037 | 0.016 | 0.029 | **0.029** (3) |
+| PRAGMA + masked pretraining | hierarchical | 0.034* | 0.038 | 0.015 | 0.029 | **0.027** (2) |
+| TabFormer (TabGPT) | tabular-transformer | 0.022 | 0.044 | 0.009 | 0.025 | **0.025** (3) |
+| TabFormer (TabBERT) | tabular-transformer | 0.022 | 0.042 | 0.009 | 0.024 | **0.024** (3) |
+| MM-TPP | llm | 0.016 | 0.026 | 0.011 | 0.018 | **0.018** (3) |
+| Language-TPP | llm | 0.016 | 0.026 | 0.007 | 0.016 | **0.016** (3) |
+| Marked Markov chain | classic | 0.003* | 0.001* | 0.001* | 0.002 | — (0) |
 
 ## MBD (full)
 
@@ -51,6 +147,31 @@ Contents: [MBD (full)](#mbd-full) · [Synthea EHR](#synthea-ehr) · [Amazon Beau
 | Mambular (Mamba SSM) | Approximation | 3 | 0.704 ± 0.008 | 0.025 ± 0.002 | 0.941 ± 0.003 | 0.511 ± 0.001 | 17,582 |
 | Count + logistic regression | Implemented | 3 | 0.696 ± 0.000 | 0.027 ± 0.000 | 0.981 ± 0.000 | 0.512 ± 0.000 | 62 |
 | MM-TPP | Approximation | 3 | 0.692 ± 0.001 | 0.023 ± 0.001 | 0.985 ± 0.002 | 0.499 ± 0.004 | 3,809 |
+
+#### Scaling fits
+
+`E(N) = a · N^-b` on seed means, as in the summary above. The per-seed column fits each seed's own curve separately (four or more points) and gives the spread of `b` across seeds. `*` flags an unreliable fit.
+
+| Method | b (1 − ROC-AUC) | a | R² | per-seed b (mean ± sd, n) | b (1 − avg. precision) | a | R² | per-seed b (mean ± sd, n) | Points |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| PRAGMA + masked pretraining | 0.066 | 0.515 | 0.95 | 0.066 ± 0.004 (3) | 0.003 | 0.998 | 0.95 | 0.003 ± 0.000 (3) | 10 |
+| PRAGMA | 0.065 | 0.510 | 0.96 | 0.065 ± 0.004 (3) | 0.003 | 0.997 | 0.95 | 0.003 ± 0.000 (3) | 10 |
+| Supervised GRU | 0.051 | 0.448 | 0.81 | 0.051 ± 0.007 (3) | 0.002 | 0.988 | 0.92 | 0.002 ± 0.000 (3) | 10 |
+| Neural TPP (GRU) | 0.051 | 0.448 | 0.81 | 0.051 ± 0.007 (3) | 0.002 | 0.988 | 0.92 | 0.002 ± 0.000 (3) | 10 |
+| Transaction MLM | 0.037 | 0.404 | 0.87 | 0.037 ± 0.008 (3) | 0.002 | 0.988 | 0.98 | 0.002 ± 0.001 (3) | 10 |
+| Transformer Hawkes | 0.062 | 0.507 | 0.90 | 0.062 ± 0.012 (3) | 0.002 | 0.990 | 0.91 | 0.002 ± 0.000 (3) | 10 |
+| Engineered features + GBDT | 0.070 | 0.576 | 0.99 | 0.070 ± 0.008 (3) | 0.002 | 0.995 | 0.97 | 0.002 ± 0.001 (3) | 10 |
+| NVIDIA TFM blueprint | 0.070 | 0.545 | 0.81 | 0.070 ± 0.009 (3) | 0.002 | 0.991 | 0.91 | 0.002 ± 0.000 (3) | 10 |
+| Autoregressive transaction Transformer | 0.068 | 0.536 | 0.88 | 0.068 ± 0.002 (3) | 0.002 | 0.992 | 0.97 | 0.002 ± 0.000 (3) | 10 |
+| Transaction autoencoder | 0.069 | 0.542 | 0.80 | 0.069 ± 0.004 (3) | 0.003 | 0.997 | 0.90 | 0.003 ± 0.000 (3) | 10 |
+| TabFormer (TabBERT) | 0.051 | 0.465 | 0.90 | 0.051 ± 0.013 (3) | 0.002 | 0.993 | 0.99 | 0.002 ± 0.000 (3) | 10 |
+| TPP-LLM | 0.060 | 0.529 | 0.93 | 0.060 ± 0.003 (3) | 0.002 | 0.995 | 0.91 | 0.002 ± 0.000 (3) | 10 |
+| Language-TPP | 0.088 | 0.684 | 0.87 | 0.096 ± 0.039 (3) | 0.002 | 0.997 | 0.92 | 0.002 ± 0.001 (3) | 10 |
+| CoLES | 0.042 | 0.427 | 0.73 | 0.042 ± 0.005 (3) | 0.002 | 0.989 | 0.91 | 0.002 ± 0.000 (3) | 10 |
+| TabFormer (TabGPT) | 0.076 | 0.597 | 0.91 | 0.076 ± 0.004 (3) | 0.002 | 0.995 | 0.97 | 0.002 ± 0.000 (3) | 10 |
+| Mambular (Mamba SSM) | 0.050 | 0.484 | 0.82 | 0.049 ± 0.005 (3) | 0.001 | 0.987 | 0.79 | 0.001 ± 0.000 (3) | 10 |
+| Count + logistic regression | 0.064 | 0.563 | 0.94 | 0.064 ± 0.017 (3) | 0.002 | 0.993 | 0.97 | 0.002 ± 0.001 (3) | 10 |
+| MM-TPP | 0.101 | 0.863 | 0.90 | 0.105 ± 0.008 (3) | 0.002 | 1.000 | 0.89 | 0.002 ± 0.000 (3) | 10 |
 
 #### ROC-AUC vs. training sequences (higher is better)
 
@@ -168,6 +289,30 @@ Contents: [MBD (full)](#mbd-full) · [Synthea EHR](#synthea-ehr) · [Amazon Beau
 | MM-TPP | Approximation | 3 | 0.569 ± 0.000 | 0.175 ± 0.003 | 1.749 ± 0.003 | 1.340 ± 0.000 | 31,736 |
 | Marked Markov chain | Implemented | 3 | 0.489 ± 0.000 | 0.088 ± 0.000 | 1.857 ± 0.000 | 1.424 ± 0.000 | 95 |
 
+#### Scaling fits
+
+`E(N) = a · N^-b` on seed means, as in the summary above. The per-seed column fits each seed's own curve separately (four or more points) and gives the spread of `b` across seeds. `*` flags an unreliable fit.
+
+| Method | b (1 − next-type acc.) | a | R² | per-seed b (mean ± sd, n) | b (Time RMSE (log1p s)) | a | R² | per-seed b (mean ± sd, n) | Points |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| PRAGMA + masked pretraining | 0.043 | 0.619 | 0.88 | 0.043 ± 0.005 (3) | 0.034* | 2.088 | 0.69 | 0.034 ± 0.001 (3) | 10 |
+| Transaction autoencoder | 0.054 | 0.684 | 0.86 | 0.053 ± 0.001 (3) | 0.039* | 2.167 | 0.67 | 0.039 ± 0.000 (3) | 10 |
+| CoLES | 0.052 | 0.673 | 0.86 | 0.052 ± 0.003 (3) | 0.038* | 2.139 | 0.65 | 0.038 ± 0.001 (3) | 10 |
+| Supervised GRU | 0.056 | 0.699 | 0.85 | 0.056 ± 0.001 (3) | 0.040* | 2.189 | 0.70 | 0.040 ± 0.001 (3) | 10 |
+| Neural TPP (GRU) | 0.056 | 0.699 | 0.85 | 0.056 ± 0.001 (3) | 0.040* | 2.189 | 0.70 | 0.040 ± 0.001 (3) | 10 |
+| PRAGMA | 0.043 | 0.617 | 0.88 | 0.042 ± 0.004 (3) | 0.035 | 2.093 | 0.70 | 0.035 ± 0.002 (3) | 10 |
+| Transaction MLM | 0.037 | 0.585 | 0.84 | 0.037 ± 0.003 (3) | 0.022 | 1.872 | 0.73 | 0.022 ± 0.001 (3) | 10 |
+| NVIDIA TFM blueprint | 0.038 | 0.592 | 0.85 | 0.038 ± 0.003 (3) | 0.024 | 1.906 | 0.73 | 0.024 ± 0.002 (3) | 10 |
+| Autoregressive transaction Transformer | 0.037 | 0.590 | 0.86 | 0.037 ± 0.003 (3) | 0.024 | 1.901 | 0.72 | 0.024 ± 0.001 (3) | 10 |
+| Transformer Hawkes | 0.036 | 0.580 | 0.82 | 0.036 ± 0.004 (3) | 0.018 | 1.810 | 0.74 | 0.018 ± 0.001 (3) | 10 |
+| Mambular (Mamba SSM) | 0.027 | 0.541 | 0.82 | 0.027 ± 0.003 (3) | 0.018 | 1.808 | 0.70 | 0.018 ± 0.001 (3) | 10 |
+| Language-TPP | 0.035 | 0.577 | 0.78 | 0.038 ± 0.003 (3) | 0.016 | 2.045 | 0.97 | 0.017 ± 0.001 (3) | 9 |
+| TPP-LLM | 0.052 | 0.679 | 0.86 | 0.049 ± 0.004 (3) | 0.038 | 2.247 | 0.91 | 0.038 ± 0.000 (3) | 10 |
+| TabFormer (TabGPT) | 0.030 | 0.559 | 0.88 | 0.030 ± 0.005 (3) | 0.022 | 2.134 | 0.95 | 0.022 ± 0.001 (3) | 10 |
+| TabFormer (TabBERT) | 0.028 | 0.548 | 0.86 | 0.028 ± 0.004 (3) | 0.022 | 2.128 | 0.95 | 0.022 ± 0.001 (3) | 10 |
+| MM-TPP | 0.040 | 0.623 | 0.78 | 0.044 ± 0.004 (3) | 0.016 | 2.042 | 0.98 | 0.016 ± 0.000 (3) | 10 |
+| Marked Markov chain | 0.004* | 0.529 | 0.61 | 0.004 ± 0.001 (3) | 0.003* | 1.902 | 0.52 | 0.003 ± 0.002 (3) | 10 |
+
 #### Next-type acc. vs. training sequences (higher is better)
 
 | Method | Family | 64 | 128 | 256 | 512 | 1 024 | 2 048 | 4 096 | 8 192 | 16 384 | 30 665 |
@@ -281,6 +426,31 @@ Contents: [MBD (full)](#mbd-full) · [Synthea EHR](#synthea-ehr) · [Amazon Beau
 | TabFormer (TabBERT) | Approximation | 3 | 0.826 ± 0.001 | 0.275 ± 0.002 | 0.920 ± 0.002 | 0.608 ± 0.001 | 4,843 |
 | TabFormer (TabGPT) | Approximation | 3 | 0.823 ± 0.001 | 0.266 ± 0.003 | 0.918 ± 0.002 | 0.607 ± 0.001 | 5,819 |
 | Language-TPP | Approximation | 3 | 0.809 ± 0.002 | 0.194 ± 0.010 | 0.906 ± 0.006 | 0.586 ± 0.007 | 11,565 |
+
+#### Scaling fits
+
+`E(N) = a · N^-b` on seed means, as in the summary above. The per-seed column fits each seed's own curve separately (four or more points) and gives the spread of `b` across seeds. `*` flags an unreliable fit.
+
+| Method | b (1 − ROC-AUC) | a | R² | per-seed b (mean ± sd, n) | b (1 − avg. precision) | a | R² | per-seed b (mean ± sd, n) | Points |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Supervised GRU | 0.144 | 0.547 | 0.89 | 0.144 ± 0.012 (3) | 0.046 | 1.117 | 0.97 | 0.046 ± 0.003 (3) | 12 |
+| Neural TPP (GRU) | 0.144 | 0.547 | 0.89 | 0.144 ± 0.012 (3) | 0.046 | 1.117 | 0.97 | 0.046 ± 0.003 (3) | 12 |
+| Transaction MLM | 0.091 | 0.328 | 0.96 | 0.091 ± 0.001 (3) | 0.035 | 1.014 | 0.93 | 0.035 ± 0.001 (3) | 12 |
+| Autoregressive transaction Transformer | 0.148 | 0.591 | 0.92 | 0.148 ± 0.004 (3) | 0.041 | 1.092 | 0.98 | 0.041 ± 0.001 (3) | 12 |
+| NVIDIA TFM blueprint | 0.151 | 0.599 | 0.89 | 0.151 ± 0.005 (3) | 0.039 | 1.073 | 0.99 | 0.039 ± 0.001 (3) | 12 |
+| PRAGMA + masked pretraining | 0.105 | 0.396 | 0.98 | 0.105 ± 0.006 (3) | 0.037 | 1.047 | 0.93 | 0.037 ± 0.001 (3) | 12 |
+| CoLES | 0.138 | 0.519 | 0.80 | 0.137 ± 0.021 (3) | 0.036 | 1.046 | 0.97 | 0.036 ± 0.003 (3) | 12 |
+| Transaction autoencoder | 0.197 | 0.975 | 0.80 | 0.197 ± 0.006 (3) | 0.043 | 1.137 | 0.96 | 0.043 ± 0.002 (3) | 12 |
+| Engineered features + GBDT | 0.090 | 0.326 | 0.95 | 0.090 ± 0.008 (3) | 0.027 | 0.943 | 1.00 | 0.027 ± 0.001 (3) | 12 |
+| Mambular (Mamba SSM) | 0.129 | 0.517 | 0.90 | 0.128 ± 0.006 (3) | 0.031 | 1.024 | 0.98 | 0.031 ± 0.001 (3) | 12 |
+| Transformer Hawkes | 0.188 | 0.909 | 0.86 | 0.187 ± 0.008 (3) | 0.039 | 1.095 | 0.96 | 0.039 ± 0.002 (3) | 12 |
+| PRAGMA | 0.096 | 0.379 | 0.98 | 0.096 ± 0.005 (3) | 0.027 | 0.983 | 0.97 | 0.027 ± 0.002 (3) | 12 |
+| Count + logistic regression | 0.084 | 0.389 | 0.82 | 0.084 ± 0.009 (3) | 0.018 | 0.932 | 0.86 | 0.018 ± 0.001 (3) | 12 |
+| TPP-LLM | 0.131 | 0.694 | 0.92 | 0.132 ± 0.009 (3) | 0.025 | 1.033 | 0.98 | 0.026 ± 0.002 (3) | 11 |
+| TabFormer (TabBERT) | 0.057 | 0.321 | 0.89 | 0.057 ± 0.005 (3) | 0.025 | 0.981 | 0.98 | 0.025 ± 0.001 (3) | 12 |
+| TabFormer (TabGPT) | 0.137 | 0.724 | 0.79 | 0.137 ± 0.009 (3) | 0.031 | 1.060 | 0.96 | 0.031 ± 0.001 (3) | 12 |
+| Language-TPP | 0.137 | 0.836 | 0.95 | 0.135 ± 0.003 (3) | 0.022 | 1.030 | 0.96 | 0.021 ± 0.001 (3) | 11 |
+| MM-TPP | 0.131 | 0.767 | 0.95 | 0.126 ± 0.004 (3) | 0.020 | 1.013 | 0.95 | 0.020 ± 0.001 (3) | 11 |
 
 #### ROC-AUC vs. training sequences (higher is better)
 
@@ -396,6 +566,30 @@ Contents: [MBD (full)](#mbd-full) · [Synthea EHR](#synthea-ehr) · [Amazon Beau
 | Language-TPP | Approximation | 3 | 0.352 ± 0.000 | 0.122 ± 0.000 | 4.622 ± 0.004 | 3.590 ± 0.008 | 95,330 |
 | Marked Markov chain | Implemented | 3 | 0.319 ± 0.000 | 0.123 ± 0.000 | 4.749 ± 0.000 | 3.875 ± 0.000 | 137 |
 
+#### Scaling fits
+
+`E(N) = a · N^-b` on seed means, as in the summary above. The per-seed column fits each seed's own curve separately (four or more points) and gives the spread of `b` across seeds. `*` flags an unreliable fit.
+
+| Method | b (1 − next-type acc.) | a | R² | per-seed b (mean ± sd, n) | b (Time RMSE (log1p s)) | a | R² | per-seed b (mean ± sd, n) | Points |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Transaction autoencoder | 0.042 | 0.915 | 0.85 | 0.042 ± 0.000 (3) | 0.069 | 7.873 | 0.94 | 0.069 ± 0.002 (3) | 12 |
+| Neural TPP (GRU) | 0.042 | 0.911 | 0.89 | 0.042 ± 0.000 (3) | 0.069 | 7.672 | 0.90 | 0.069 ± 0.001 (3) | 12 |
+| Supervised GRU | 0.042 | 0.911 | 0.89 | 0.042 ± 0.000 (3) | 0.069 | 7.672 | 0.90 | 0.069 ± 0.001 (3) | 12 |
+| CoLES | 0.042 | 0.908 | 0.90 | 0.042 ± 0.000 (3) | 0.070 | 7.750 | 0.89 | 0.069 ± 0.001 (3) | 12 |
+| PRAGMA + masked pretraining | 0.038 | 0.870 | 0.97 | 0.038 ± 0.000 (3) | 0.038 | 5.517 | 0.86 | 0.038 ± 0.002 (3) | 12 |
+| Transaction MLM | 0.038 | 0.853 | 0.98 | 0.038 ± 0.000 (3) | 0.052 | 6.365 | 0.81 | 0.052 ± 0.001 (3) | 12 |
+| PRAGMA | 0.035 | 0.856 | 0.97 | 0.035 ± 0.001 (3) | 0.037 | 5.488 | 0.85 | 0.037 ± 0.002 (3) | 12 |
+| NVIDIA TFM blueprint | 0.038 | 0.857 | 0.98 | 0.038 ± 0.000 (3) | 0.052 | 6.413 | 0.81 | 0.052 ± 0.000 (3) | 12 |
+| Transformer Hawkes | 0.037 | 0.850 | 0.98 | 0.037 ± 0.001 (3) | 0.050 | 6.265 | 0.78 | 0.050 ± 0.001 (3) | 12 |
+| Autoregressive transaction Transformer | 0.037 | 0.857 | 0.98 | 0.037 ± 0.000 (3) | 0.054 | 6.510 | 0.81 | 0.054 ± 0.001 (3) | 12 |
+| TPP-LLM | 0.037 | 0.861 | 0.97 | 0.037 ± 0.001 (3) | 0.055 | 6.781 | 0.87 | 0.059 ± 0.008 (3) | 12 |
+| TabFormer (TabBERT) | 0.032 | 0.818 | 0.98 | 0.032 ± 0.001 (3) | 0.042 | 5.878 | 0.72 | 0.042 ± 0.001 (3) | 12 |
+| TabFormer (TabGPT) | 0.031 | 0.819 | 0.98 | 0.031 ± 0.000 (3) | 0.044 | 6.018 | 0.72 | 0.044 ± 0.001 (3) | 12 |
+| Language-TPP | 0.018 | 0.793 | 0.98 | 0.018 ± 0.001 (3) | 0.026 | 6.097 | 0.95 | 0.026 ± 0.001 (3) | 10 |
+| Marked Markov chain | 0.001* | 0.688 | 0.57 | 0.001 ± 0.000 (3) | 0.001* | 4.774 | 0.52 | 0.001 ± 0.000 (3) | 12 |
+| Mambular (Mamba SSM) | 0.040 | 0.866 | 0.99 | 0.040 ± 0.001 (3) | 0.051 | 6.229 | 0.79 | 0.053 ± 0.004 (3) | 11 |
+| MM-TPP | 0.014 | 0.782 | 0.94 | 0.014 ± 0.000 (3) | 0.026 | 6.134 | 0.95 | 0.026 ± 0.002 (3) | 10 |
+
 #### Next-type acc. vs. training sequences (higher is better)
 
 | Method | Family | 64 | 128 | 256 | 512 | 1 024 | 2 048 | 4 096 | 8 192 | 16 384 | 32 768 | 65 536 | 93 305 |
@@ -510,6 +704,31 @@ Contents: [MBD (full)](#mbd-full) · [Synthea EHR](#synthea-ehr) · [Amazon Beau
 | MM-TPP | Approximation | 2 | 0.598 ± 0.001 | 0.366 ± 0.001 | 0.750 ± 0.002 | 0.504 ± 0.010 | 3,606 |
 | Count + logistic regression | Implemented | 2 | 0.589 ± 0.000 | 0.356 ± 0.000 | 0.749 ± 0.000 | 0.471 ± 0.000 | 5 |
 
+#### Scaling fits
+
+`E(N) = a · N^-b` on seed means, as in the summary above. The per-seed column fits each seed's own curve separately (four or more points) and gives the spread of `b` across seeds. `*` flags an unreliable fit.
+
+| Method | b (1 − ROC-AUC) | a | R² | per-seed b (mean ± sd, n) | b (1 − avg. precision) | a | R² | per-seed b (mean ± sd, n) | Points |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Autoregressive transaction Transformer | 0.082 | 0.646 | 0.93 | 0.081 ± 0.002 (3) | 0.057 | 0.909 | 0.97 | 0.056 ± 0.001 (3) | 10 |
+| Transformer Hawkes | 0.067 | 0.565 | 0.96 | 0.064 ± 0.009 (3) | 0.049 | 0.844 | 0.98 | 0.048 ± 0.006 (3) | 10 |
+| PRAGMA + masked pretraining | 0.048 | 0.457 | 0.78 | 0.043 ± 0.012 (3) | 0.041 | 0.758 | 0.90 | 0.039 ± 0.006 (3) | 9 |
+| Transaction autoencoder | 0.112 | 0.832 | 0.86 | 0.112 ± 0.009 (3) | 0.067 | 0.978 | 0.93 | 0.067 ± 0.006 (3) | 10 |
+| PRAGMA | 0.043 | 0.441 | 0.86 | 0.040 ± 0.012 (3) | 0.039 | 0.750 | 0.94 | 0.038 ± 0.008 (3) | 9 |
+| Transaction MLM | 0.046 | 0.461 | 0.96 | 0.046 ± 0.008 (3) | 0.035 | 0.736 | 0.99 | 0.035 ± 0.006 (3) | 10 |
+| TabFormer (TabGPT) | 0.073 | 0.595 | 0.95 | 0.074 ± 0.013 (3) | 0.047 | 0.852 | 0.99 | 0.046 ± 0.004 (3) | 9 |
+| Engineered features + GBDT | 0.059 | 0.547 | 0.98 | 0.059 ± 0.006 (3) | 0.045 | 0.836 | 0.98 | 0.045 ± 0.003 (3) | 10 |
+| Neural TPP (GRU) | 0.087 | 0.662 | 0.75 | 0.077 ± 0.014 (3) | 0.055 | 0.871 | 0.82 | 0.052 ± 0.003 (3) | 9 |
+| Supervised GRU | 0.086 | 0.652 | 0.76 | 0.085 ± 0.005 (3) | 0.055 | 0.870 | 0.82 | 0.055 ± 0.001 (3) | 10 |
+| CoLES | 0.095 | 0.713 | 0.80 | 0.107 ± 0.019 (3) | 0.059 | 0.901 | 0.87 | 0.065 ± 0.010 (3) | 10 |
+| TabFormer (TabBERT) | 0.047 | 0.468 | 0.86 | 0.048 ± 0.002 (3) | 0.036 | 0.766 | 0.92 | 0.037 ± 0.003 (3) | 10 |
+| Mambular (Mamba SSM) | 0.047 | 0.508 | 0.90 | 0.049 ± 0.012 (3) | 0.035 | 0.779 | 0.91 | 0.036 ± 0.006 (3) | 9 |
+| TPP-LLM | 0.031 | 0.540 | 0.79 | 0.038 ± 0.030 (3) | 0.020 | 0.774 | 0.89 | 0.026 ± 0.018 (3) | 8 |
+| Language-TPP | 0.025 | 0.513 | 0.98 | 0.021 ± 0.011 (3) | 0.016 | 0.747 | 1.00 | 0.015 ± 0.007 (3) | 6 |
+| MM-TPP | 0.024 | 0.508 | 0.84 | 0.019 ± 0.009 (3) | 0.016 | 0.740 | 0.87 | 0.012 ± 0.005 (3) | 7 |
+| Count + logistic regression | 0.014 | 0.470 | 0.76 | 0.016 ± 0.004 (3) | 0.014 | 0.733 | 0.83 | 0.015 ± 0.005 (3) | 10 |
+| NVIDIA TFM blueprint | 0.081 | 0.623 | 0.92 | 0.083 ± 0.019 (3) | 0.055 | 0.885 | 0.96 | 0.056 ± 0.008 (3) | 9 |
+
 #### ROC-AUC vs. training sequences (higher is better)
 
 | Method | Family | 64 | 128 | 256 | 512 | 1 024 | 2 048 | 4 096 | 8 192 | 16 384 | 34 023 |
@@ -623,6 +842,30 @@ Contents: [MBD (full)](#mbd-full) · [Synthea EHR](#synthea-ehr) · [Amazon Beau
 | Neural TPP (GRU) | Approximation | 3 | 0.479 ± 0.002 | 0.277 ± 0.004 | 5.061 ± 0.008 | 4.536 ± 0.007 | 1,468 |
 | Supervised GRU | Implemented | 3 | 0.479 ± 0.001 | 0.276 ± 0.003 | 5.061 ± 0.008 | 4.537 ± 0.009 | 1,483 |
 | Marked Markov chain | Implemented | 3 | 0.463 ± 0.000 | 0.274 ± 0.000 | 5.761 ± 0.000 | 5.559 ± 0.000 | 6 |
+
+#### Scaling fits
+
+`E(N) = a · N^-b` on seed means, as in the summary above. The per-seed column fits each seed's own curve separately (four or more points) and gives the spread of `b` across seeds. `*` flags an unreliable fit.
+
+| Method | b (1 − next-type acc.) | a | R² | per-seed b (mean ± sd, n) | b (Time RMSE (log1p s)) | a | R² | per-seed b (mean ± sd, n) | Points |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Transaction MLM | 0.060 | 0.898 | 0.89 | 0.060 ± 0.004 (3) | 0.022 | 6.214 | 0.91 | 0.022 ± 0.001 (3) | 10 |
+| TPP-LLM | 0.051 | 0.820 | 0.85 | 0.045 ± 0.014 (3) | 0.017 | 6.068 | 0.81 | 0.015 ± 0.007 (3) | 7 |
+| CoLES | 0.067 | 1.027 | 0.91 | 0.068 ± 0.004 (3) | 0.023 | 6.432 | 0.87 | 0.025 ± 0.002 (3) | 10 |
+| Autoregressive transaction Transformer | 0.063 | 0.930 | 0.90 | 0.063 ± 0.003 (3) | 0.022 | 6.249 | 0.91 | 0.022 ± 0.002 (3) | 10 |
+| Mambular (Mamba SSM) | 0.053 | 0.845 | 0.87 | 0.052 ± 0.001 (3) | 0.020 | 6.104 | 0.85 | 0.019 ± 0.002 (3) | 9 |
+| NVIDIA TFM blueprint | 0.059 | 0.898 | 0.89 | 0.064 ± 0.005 (3) | 0.021 | 6.218 | 0.92 | 0.022 ± 0.001 (3) | 9 |
+| Transformer Hawkes | 0.055 | 0.862 | 0.91 | 0.051 ± 0.005 (3) | 0.022 | 6.204 | 0.85 | 0.020 ± 0.001 (3) | 9 |
+| TabFormer (TabGPT) | 0.058 | 0.876 | 0.85 | 0.064 ± 0.007 (3) | 0.009 | 5.927 | 0.97 | 0.009 ± 0.000 (3) | 10 |
+| Language-TPP | 0.058 | 0.858 | 0.80 | 0.051 ± 0.007 (2) | 0.007 | 5.869 | 0.99 | 0.007 ± 0.002 (2) | 6 |
+| PRAGMA + masked pretraining | 0.043 | 0.797 | 0.97 | 0.045 ± 0.004 (3) | 0.015 | 6.083 | 0.95 | 0.015 ± 0.001 (3) | 9 |
+| PRAGMA | 0.050 | 0.835 | 0.96 | 0.048 ± 0.002 (3) | 0.016 | 6.104 | 0.95 | 0.015 ± 0.002 (3) | 10 |
+| Transaction autoencoder | 0.042 | 0.887 | 0.77 | 0.042 ± 0.006 (3) | 0.023 | 6.402 | 0.93 | 0.023 ± 0.001 (3) | 10 |
+| Neural TPP (GRU) | 0.049 | 0.933 | 0.80 | 0.056 ± 0.012 (3) | 0.024 | 6.493 | 0.87 | 0.025 ± 0.002 (3) | 9 |
+| Supervised GRU | 0.051 | 0.934 | 0.87 | 0.051 ± 0.010 (3) | 0.023 | 6.432 | 0.89 | 0.023 ± 0.001 (3) | 10 |
+| Marked Markov chain | 0.001* | 0.542 | 0.50 | 0.001 ± 0.001 (3) | 0.001* | 5.839 | 0.65 | 0.001 ± 0.000 (3) | 10 |
+| MM-TPP | 0.071 | 0.948 | 0.89 | 0.075 ± 0.008 (2) | 0.011 | 5.943 | 0.98 | 0.012 ± 0.004 (2) | 7 |
+| TabFormer (TabBERT) | 0.065 | 0.909 | 0.80 | 0.067 ± 0.006 (3) | 0.009 | 5.934 | 0.97 | 0.009 ± 0.000 (3) | 9 |
 
 #### Next-type acc. vs. training sequences (higher is better)
 

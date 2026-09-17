@@ -15,7 +15,7 @@ until the campaign closes — see
 | File | What it holds |
 | --- | --- |
 | [`results.md`](results.md) | All methods per dataset and task, at the largest sample size. |
-| [`full_results.md`](full_results.md) | **Everything**: every method x sample size x metric, per dataset and task, plus all metrics at the full pool. Regenerate with `python docs/benchmark_scale/make_full_results.py`. |
+| [`full_results.md`](full_results.md) | **Everything**: every method x sample size x metric, per dataset and task, all metrics at the full pool, and scaling fits (`b`, `a`, R², per-seed spread) for every error metric. Regenerate with `python docs/benchmark_scale/make_full_results.py`. |
 | [`results.csv`](results.csv) | Every cell: metric x method x dataset x sample size x seed. |
 | [`scaling_exponents.md`](scaling_exponents.md) | Fitted `E(N) = a · N^-b` per method and dataset. |
 | `figures/by_method/`, `figures/by_dataset/`, `figures/scaling_laws/` | 496 SVGs, light and dark. |
