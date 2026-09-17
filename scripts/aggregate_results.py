@@ -2,6 +2,7 @@
 
     python scripts/aggregate_results.py
     python scripts/aggregate_results.py --results-dir <dir> --publish docs/benchmark
+    python scripts/aggregate_results.py --results-dir <dir-a> <dir-b> --publish docs/benchmark
 """
 
 import argparse
@@ -36,19 +37,35 @@ from eventfm.datasets.paths import output_root  # noqa: E402
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--results-dir", type=str, default=None)
+    parser.add_argument(
+        "--results-dir",
+        type=str,
+        nargs="+",
+        default=None,
+        help="one or more result directories; cells from all of them are pooled",
+    )
     parser.add_argument("--report-dir", type=str, default=None)
     parser.add_argument("--publish", type=str, default="docs/benchmark")
     parser.add_argument("--no-figures", action="store_true")
     args = parser.parse_args()
 
-    results_dir = Path(args.results_dir) if args.results_dir else (output_root() / "results")
+    results_dirs = (
+        [Path(value) for value in args.results_dir]
+        if args.results_dir
+        else [output_root() / "results"]
+    )
     report_dir = Path(args.report_dir) if args.report_dir else (output_root() / "report")
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    records = load_results(results_dir)
+    records = []
+    for directory in results_dirs:
+        records.extend(load_results(directory))
     if not records:
-        raise SystemExit("No result files found under {}".format(results_dir))
+        raise SystemExit(
+            "No result files found under {}".format(
+                ", ".join(str(directory) for directory in results_dirs)
+            )
+        )
 
     statuses = Counter(record.status for record in records)
     print("loaded {} cells: {}".format(len(records), dict(statuses)))

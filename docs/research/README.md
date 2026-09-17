@@ -12,6 +12,14 @@ The central question is:
 > representations that transfer across event-, prefix-, and customer-level
 > tasks under controlled data and compute budgets?
 
+Two of the standing gaps below are addressed by the three scale benchmarks
+described in [`../benchmark_design.md`](../benchmark_design.md) section 2.1: the
+labelled training pool now reaches 93 305 sequences rather than ~3 000, and the
+benchmark is no longer banking-only. Synthea supplies a medical event stream and
+Amazon Beauty 2014 a recommendation one — but Synthea is **synthetic**, so it
+does not discharge the requirement for a real-EHR arm, and neither addresses the
+event- and prefix-level task gap.
+
 This framing is intentionally broader than "PRAGMA versus TPP-LLM." Those
 systems optimize different capabilities. The paper should separate five axes:
 
@@ -35,6 +43,7 @@ systems optimize different capabilities. The paper should separate five axes:
 | [`paper_blueprint.md`](paper_blueprint.md) | Candidate thesis, research questions, claim-to-evidence map, paper outline, and execution phases. |
 | [`implementation_manifest.md`](implementation_manifest.md) | Generated inventory of every runnable method, dataset, tokenizer, and experiment suite. |
 | [`experiment_execution.md`](experiment_execution.md) | Commands, suite map, result artifacts, validity gates, and execution boundary. |
+| [`campaign_status.md`](campaign_status.md) | Current capped SLURM campaign, job IDs, completion audit, and recovery policy. |
 
 ## Status vocabulary
 

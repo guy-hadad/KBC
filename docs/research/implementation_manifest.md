@@ -8,9 +8,9 @@ reproductions.
 ## Coverage summary
 
 - 62 registered methods: 18 implemented controls and 44 disclosed approximations;
-- 14 prepared-dataset definitions;
+- 17 prepared-dataset definitions;
 - 20 GEM temporal tokenizer configurations;
-- 22 named experiment suites.
+- 24 named experiment suites.
 
 `Implemented` means an in-repository control with a runnable contract and
 smoke coverage. Paper-named systems are deliberately marked `Approximation`
@@ -91,6 +91,9 @@ when data, scale, likelihood, architecture, or training recipe differs.
 | `paysim` | PaySim | classification, tpp | `hash` | hf:theman10/paysim | destination account | transfer type (5 types) | fraud occurs in the held-out tail of the history |
 | `ibm_aml` | IBM AML (HI-Small) | classification, tpp | `hash` | hf:OsamaMIT/IBM-AML-HI-Small | receiving account | payment format (7 types) | laundering occurs in the held-out tail of the history |
 | `mbd_mini` | MBD-mini | classification, tpp | `hash` | hf:ai-lab/MBD-mini | bank client | transaction event type | product-propensity target shipped with the benchmark |
+| `mbd` | MBD (full) | classification, tpp | `hash` | hf:ai-lab/MBD | bank client | transaction event type | product-propensity target shipped with the benchmark |
+| `synthea` | Synthea EHR | classification, tpp | `hash` | hf:richardyoung/synthea-575k-patients | patient | SNOMED condition description | major adverse cardiovascular or renal event in the held-out tail |
+| `amazon_beauty` | Amazon Beauty 2014 | classification, tpp | `hash` | hf:milistu/Amazon_Beauty_2014 | reviewer | item level-2 product category | negative review (rating <= 2) in the held-out tail |
 | `synthetic` | Synthetic | classification, tpp | `hash` | eventfm.data.synthetic | synthetic user | type_<idx> (50 types) | generator-assigned binary label |
 | `stackoverflow` | Stack Overflow | tpp | `hash` | hf:tppllm/stack-overflow-description | user sequence | badge text (25 types) | next event type and time only |
 | `chicago_crime` | Chicago Crime | tpp | `hash` | hf:tppllm/chicago-crime-description | spatial sequence | crime event text (20 types) | next event type and time only |
@@ -127,6 +130,8 @@ They describe scheduled runs; they do not imply that the cells have completed.
 | `objective-factorial` | 360 | 4 | classification, tpp | 1 | 2048 | 13, 29, 43, 71, 101 | full | masked, next, marked-tte, contrastive, masked-next, next-tte, masked-contrastive, next-contrastive, full | Single, pairwise, and full EventFM objectives under the same encoder and budget. |
 | `paper-headline` | 580 | 4 | classification, tpp | 15 | 2048 | 13, 29, 43, 71, 101 | full | default | Compute-manageable five-seed suite spanning every central method family. |
 | `pooling-ablation` | 180 | 4 | classification | 3 | 2048 | 13, 29, 43, 71, 101 | full | last, mean, max | Last-event, mean, and max customer readouts under otherwise fixed objectives. |
+| `scale-datasets` | 2496 | 3 | classification, tpp | 14 | mbd: 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 30665; synthea: 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 93305; amazon_beauty: 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 34023 | 13, 29, 43 | full | default | Sample-scaling curves from 64 sequences to the whole training pool on full MBD, Synthea EHR and Amazon Beauty 2014. |
+| `scale-datasets-baselines` | 864 | 3 | classification, tpp | 5 | mbd: 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 30665; synthea: 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 93305; amazon_beauty: 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 34023 | 13, 29, 43 | full | default | The strong supervised baselines that the core zoo does not already cover, over the same large-dataset scaling grid. |
 | `strong-baselines` | 936 | 4 | classification, tpp | 8 | 64, 128, 256, 512, 1024, 2048 | 13, 29, 43 | full | default | Non-neural, supervised, reconstructive, autoregressive, and contrastive controls. |
 | `temporal-models` | 720 | 4 | tpp | 10 | 64, 128, 256, 512, 1024, 2048 | 13, 29, 43 | full | default | Recurrent, attention, intensity-free, convolutional, and LLM temporal models. |
 | `time-representation-ablation` | 1584 | 4 | classification, tpp | 11 | 64, 128, 256, 512, 1024, 2048 | 13, 29, 43 | full | default | All continuous, calendar, positional, bucket, and rotary time conditions. |

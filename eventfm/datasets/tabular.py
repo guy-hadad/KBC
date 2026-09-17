@@ -61,6 +61,11 @@ class ConversionConfig:
     preserve_eval_prevalence: bool = True
     split_strategy: str = "hash"
     max_entities: Optional[int] = 60000
+    # Caps validation and test only, leaving the training pool untouched. Every
+    # cell reads the whole evaluation split, so on a million-entity dataset this
+    # is what keeps a single cell inside its memory budget; the subsample is
+    # uniform, so the natural prevalence of the split is preserved.
+    max_eval_entities: Optional[int] = None
     validation_fraction: float = 0.15
     test_fraction: float = 0.20
     seed: int = 17
@@ -105,14 +110,21 @@ def quantile_bucketize(values: np.ndarray, num_buckets: int) -> Tuple[np.ndarray
 
 
 def fit_category_levels(values: np.ndarray, max_cardinality: int) -> List[str]:
-    """Select the most frequent training levels with deterministic tie breaks."""
+    """Select the most frequent training levels with deterministic tie breaks.
 
-    tokens = np.asarray([str(value) for value in values], dtype=object)
-    if not tokens.size:
+    Counted through a dictionary rather than ``np.unique``: sorting an object
+    array compares Python strings pairwise, which is minutes per column once a
+    dataset reaches tens of millions of events.
+    """
+
+    counts: Dict[str, int] = {}
+    for value in np.asarray(values).tolist():
+        token = value if isinstance(value, str) else str(value)
+        counts[token] = counts.get(token, 0) + 1
+    if not counts:
         return []
-    unique, counts = np.unique(tokens, return_counts=True)
-    order = sorted(range(len(unique)), key=lambda index: (-int(counts[index]), str(unique[index])))
-    return [str(unique[index]) for index in order[:max_cardinality]]
+    order = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [token for token, _ in order[:max_cardinality]]
 
 
 def apply_category_levels(values: np.ndarray, levels: Sequence[str]) -> np.ndarray:
@@ -157,13 +169,27 @@ def _proportional_caps(lengths: Dict[str, int], total_cap: int) -> Dict[str, int
 def _group_rows(entity_ids: np.ndarray, timestamps: np.ndarray) -> Dict[str, np.ndarray]:
     """Return ``entity_id -> row indices`` with each group ordered by time."""
 
-    unique_ids, codes = np.unique(entity_ids, return_inverse=True)
-    order = np.lexsort((timestamps, codes))
+    # Factorised through a dictionary for the same reason as
+    # `fit_category_levels`: `np.unique` on an object array is a string sort.
+    # Entity ids are sorted first so the grouping order matches that sort.
+    identifiers = np.asarray(entity_ids).tolist()
+    unique_ids = sorted({value if isinstance(value, str) else str(value) for value in identifiers})
+    code_of = {value: index for index, value in enumerate(unique_ids)}
+    codes = np.fromiter(
+        (code_of[value if isinstance(value, str) else str(value)] for value in identifiers),
+        dtype=np.int64,
+        count=len(identifiers),
+    )
+    del identifiers
+    order = np.lexsort((np.asarray(timestamps), codes))
     sorted_codes = codes[order]
     boundaries = np.flatnonzero(sorted_codes[1:] != sorted_codes[:-1]) + 1
     return {
-        str(unique_ids[codes[chunk[0]]]): chunk
-        for chunk in np.split(order, boundaries)
+        unique_ids[sorted_codes[start]]: chunk
+        for start, chunk in zip(
+            np.concatenate(([0], boundaries)) if boundaries.size else np.asarray([0]),
+            np.split(order, boundaries),
+        )
         if chunk.size
     }
 
@@ -333,6 +359,12 @@ def build_sequences(
         for entity_id in kept:
             split = _assign_split(entity_id, config.validation_fraction, config.test_fraction)
             kept_by_split[split].append(entity_id)
+
+    if config.max_eval_entities is not None:
+        for split in ("validation", "test"):
+            if len(kept_by_split[split]) > config.max_eval_entities:
+                rng.shuffle(kept_by_split[split])
+                kept_by_split[split] = kept_by_split[split][: config.max_eval_entities]
 
     if config.max_entities is not None:
         caps = _proportional_caps(

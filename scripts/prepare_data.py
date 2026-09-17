@@ -3,6 +3,7 @@
     python scripts/prepare_data.py                # all datasets
     python scripts/prepare_data.py banksim paysim # a subset
     python scripts/prepare_data.py --force        # rebuild from raw
+    python scripts/prepare_data.py --scale        # only the three large datasets
 """
 
 import argparse
@@ -13,12 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eventfm.datasets.paths import configure_hf_cache, processed_root  # noqa: E402
-from eventfm.datasets.registry import (  # noqa: E402
-    CHRONOLOGICAL_DATASETS,
-    GEM_DATASETS,
-    PRIMARY_DATASETS,
-    build_dataset,
-)
+from eventfm.datasets.registry import build_dataset, resolve_prepare_names  # noqa: E402
 
 
 def main() -> None:
@@ -30,14 +26,15 @@ def main() -> None:
         action="store_true",
         help="prepare primary, chronological, and external GEM datasets",
     )
+    parser.add_argument(
+        "--scale",
+        action="store_true",
+        help="prepare the three large-scale datasets (full MBD, Synthea, Amazon Beauty)",
+    )
     args = parser.parse_args()
 
     configure_hf_cache()
-    names = args.datasets or list(
-        PRIMARY_DATASETS + CHRONOLOGICAL_DATASETS + GEM_DATASETS
-        if args.paper
-        else PRIMARY_DATASETS
-    )
+    names = resolve_prepare_names(args.datasets, paper=args.paper, scale=args.scale)
     summary = {}
     for name in names:
         print("[prepare] {} ...".format(name), flush=True)

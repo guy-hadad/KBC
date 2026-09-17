@@ -72,10 +72,100 @@ All four are the open benchmarks named in section 3.1.5 of the project note.
 | BankSim | `github:atavci/fraud-detection-on-banksim-data` | customer | merchant category | 15 |
 | PaySim | `hf:theman10/paysim` | destination account | transfer type | 4 |
 | IBM AML (HI-Small) | `hf:OsamaMIT/IBM-AML-HI-Small` | receiving account | payment format | 7 |
-| MBD-mini | `hf:ai-lab/MBD-mini` | bank client | transaction event type | 54 |
+| MBD-mini | `hf:ai-lab/MBD-mini` | bank client | transaction event type | 52 |
 
-Full MBD is 69 GB; MBD-mini is the official 10 % client subsample with the same
-schema, and is what is used here.
+MBD-mini is the official 10 % client subsample of the 69 GB MBD release. Both
+are registered: `mbd_mini` is the screening entry, and `mbd` is the full release
+used by the large-dataset scaling programme in section 2.1.
+
+### 2.1 The three scale benchmarks
+
+The four benchmarks above top out at roughly 3 000 training sequences, which
+bounds every scaling curve in this repository to five octaves. The limit is not
+the size of the sources — MBD-mini alone holds 98 721 clients and 36.7 M
+transactions — but three conversion knobs: the 20 % positive-rate rebalance, the
+entity cap, and the 128-event history truncation. Of these the rebalance
+dominates, because at MBD's 1.40 % natural prevalence the positives, not the
+clients, are the scarce resource.
+
+Three datasets were added to lift that ceiling and to take the benchmark out of
+banking alone:
+
+| Dataset | Source | Entity | Mark | Marks | Train | Val | Test | Mean events / seq | Natural pos. | Used pos. (train) |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| MBD (full) | `hf:ai-lab/MBD` | bank client | transaction event type | 53 | 30 665 | 40 000 | 40 000 | 103.6 | 1.16 % | 20 % |
+| Synthea EHR | `hf:richardyoung/synthea-575k-patients` | patient | SNOMED condition | 65 | 93 305 | 68 117 | 91 356 | 62.6 | 6.31 % | 20 % |
+| Amazon Beauty 2014 | `hf:milistu/Amazon_Beauty_2014` | reviewer | level-2 category | 10 | 34 023 | 7 891 | 10 460 | 6.0 | 26.31 % | 26.44 % |
+
+**Amazon Beauty is the first entry whose training split is not rebalanced at
+all.** Its natural prevalence of 26.3 % is already above the 20 % target, so
+`_rebalance` is a no-op and train, validation and test all carry the natural
+rate. Synthea is rebalanced on train only; its validation (6.26 %) and test
+(6.45 %) keep the natural prevalence, as the current converter requires.
+
+#### Why these three
+
+* **MBD (full)** changes only scale, not schema: same adapter contract, same
+  provided product-propensity label, same 128-event truncation as `mbd_mini`.
+  That makes the pair a controlled test of what ten times the clients buys, with
+  every other choice held fixed.
+* **Synthea EHR** supplies the medical domain. Events are the 56.4 M-row
+  diagnosis stream of 575 415 synthetic patients; the mark is the SNOMED
+  condition description, giving the largest mark vocabulary in the benchmark;
+  the label is a **major adverse cardiovascular or renal event** — myocardial
+  infarction (including STEMI and NSTEMI), chronic congestive heart failure,
+  CKD stage 4, or end-stage renal disease — in the held-out tail of the history.
+  The target group is a fixed clinical definition in
+  `SYNTHEA_TARGET_CONDITIONS`, not a tuned threshold.
+* **Amazon Beauty 2014** supplies the recommendation domain: 1.21 M reviewers
+  and 2.02 M reviews, filtered to the 5-core convention of at least five reviews
+  per reviewer. The mark is the item's level-2 product category, which is the
+  informative level once every path starts at `Beauty`. The label is a
+  **negative review (rating <= 2)** in the held-out tail — the recommendation
+  analogue of the fraud and churn labels on the banking entries.
+
+#### What these three do not fix
+
+* **Synthea is synthetic.** It sits in the same fidelity class as BankSim and
+  PaySim, and it is not a substitute for MIMIC-IV or another credentialed
+  real-EHR corpus. No result on it transfers to real clinical data. It was
+  chosen because it is openly downloadable at a scale that supports a scaling
+  curve; a real-EHR arm needs a signed data-use agreement.
+* **Amazon histories are short** — 6.0 observed events on average, between
+  PaySim's 11.5 and nothing. It tests label scale, not long-range temporal
+  structure, and its 10 surviving marks are the second-smallest vocabulary here.
+* **Only the diagnosis stream of Synthea is read.** `medications`,
+  `procedures` and `observations` ship in the same repository and would make it
+  a genuinely multi-source EHR stream; they are not converted.
+* **MBD-full converts all 1 000 000 clients**, but its evaluation splits are
+  capped at 40 000 sequences each (`max_eval_entities`). Every cell reads the
+  whole evaluation split, so without that cap a single cell would not fit 48 GB.
+  The cap subsamples uniformly within each split, so prevalence is preserved.
+  `KBC_MBD_MAX_CLIENTS` can additionally cap the client count; it is unused by
+  default. Note that keeping all positives and downsampling negatives at the
+  client-selection stage would have reproduced exactly the global-downsampling
+  flaw that the legacy results carry, which is why every cap here is label-blind.
+
+#### Memory
+
+A full-scale conversion does not fit in 48 GB naively. Three changes make it
+fit, none of which alters any output:
+
+1. **Interned category arrays** (`_interned`). `Series.to_numpy()` on a text
+   column allocates a fresh `str` per row; six text columns over 64 M events is
+   ~20 GB of string objects. Mapping through the distinct values stores pointers
+   instead, so a 54-mark column costs 8 bytes per row rather than ~55.
+2. **Dictionary factorisation** in `_group_rows` and `fit_category_levels`.
+   Both used `np.unique` on an object array, which is a pairwise Python string
+   sort — minutes per column at this size. Both now count and factorise through
+   a dict; `_group_rows` is verified to return groups identical to the previous
+   implementation.
+3. **Truncation inside the scan.** Each client's history is cut to the last
+   `max_events_per_entity` events during the parquet scan, in file chunks, so
+   the exploded table is never materialised at full length.
+
+All three conversions completed inside the 48 GB budget: full MBD, the largest,
+took 7 min 36 s for 1 000 000 clients and 128 M candidate events.
 
 ### What the legacy conversion produced
 
@@ -94,8 +184,14 @@ never appears on destination accounts that reach eight events.
 The two extremes are worth keeping in mind when reading the tables: PaySim has
 the fewest marks and the shortest histories (four marks, ~11 events), so its
 next-type task is nearly trivial while its classification task is close to
-hopeless; MBD-mini has 54 marks over ~104 events, so it is the only benchmark
-here where mark prediction is genuinely hard.
+hopeless; MBD-mini has the most marks of the four screening benchmarks over
+~104 events, so among them it is where mark prediction is genuinely hard.
+
+Counts in the table above are the **legacy** conversion, which is why they do
+not match the current one (MBD-mini now yields 3 000 training sequences over 52
+marks, not 3 072 over 54: the paper-grade converter changed the entity filter and
+the rare-mark collapse). The scale benchmarks in section 2.1 have since overtaken
+MBD-mini on mark difficulty — Synthea carries 65.
 
 ### Why the entity is not always the obvious one
 

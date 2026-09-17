@@ -56,6 +56,59 @@ sbatch --export=ALL,KBC_EXPERIMENT_SUITE=gem-full-banking \
 | GEM analysis | `gem-context-budget`, `gem-model-scale`, `gem-event-text` | Equal-event/equal-token budgets, capacity sensitivity, and language-prior isolation. |
 | Robustness | `chronological-robustness`, `cross-schema-transfer` | Whole-entity temporal drift and leave-one-dataset-out source pretraining. |
 | Scaling | `labeled-adaptation-scaling`, `unlabeled-pretraining-scaling`, `model-scale-ablation`, `context-length-ablation` | Separates labeled data, unlabeled data, model size, and effective history. |
+| Large-dataset scaling | `scale-datasets`, `scale-datasets-baselines` | Sample-scaling curves over 9-10 octaves on full MBD, Synthea EHR, and Amazon Beauty 2014, for the core method zoo and for the controls/strong baselines respectively. |
+
+### Pre-build subsets, then fill gaps
+
+```bash
+python scripts/materialize_subsets.py --suite scale-datasets --dry-run
+python scripts/materialize_subsets.py --suite scale-datasets
+sbatch --array=0-3 --dependency=afterany:<main array> \
+  --export=ALL,KBC_EXPERIMENT_SUITE=scale-datasets,KBC_ONLY_MISSING=1 \
+  slurm/run_experiment_cpu_array.sbatch
+```
+
+Materialise before submitting an array: a worker that has to build a subset
+parses the whole training split, and concurrent builders of the same subset gave
+three `Errno 116` failures on the first pass (see `campaign_status.md`). Then
+queue a `KBC_ONLY_MISSING=1` array `afterany` the main one — a cell that failed
+has a result file, and `run_cell` returns any existing file untouched, so
+failures never retry by themselves.
+
+### Data preparation needs a modern CPU node
+
+Conversion is the only stage that imports polars, and the installed polars
+wheels require `avx2`/`fma`/`bmi1`/`bmi2`/`lzcnt`/`movbe`. The older
+`ise-cpu-intl-*` nodes in the `cpu` partition do not have them, and the process
+dies with `Illegal instruction` a few seconds in rather than raising a Python
+error. `slurm/prepare_scale_data.sbatch` therefore carries
+`--constraint=cpu128|cpu256` and probes polars in a subprocess before starting.
+
+Measured with a one-line polars job per node family:
+
+| Node family | `cpu` features | polars |
+| --- | --- | --- |
+| `ise-cpu128-*` | `cpu,cpu128` | works |
+| `ise-cpu256-*` | `cpu,cpu256` | works |
+| `ise-cpu-intl-*` | `cpu` | `SIGILL` |
+
+Do not substitute a `/proc/cpuinfo` flag-name check for the subprocess probe:
+AMD reports LZCNT as `abm`, so grepping for `lzcnt` fails on nodes that run
+polars perfectly well. **Running a cell imports no polars**, so the experiment
+arrays are deliberately left unconstrained.
+
+### Per-dataset sample-size grids
+
+The scale benchmarks have training pools that differ by an order of magnitude
+(34 023 / 93 305 / MBD-full), so a single shared grid would either truncate the
+range on the large datasets or silently repeat the largest point on the small
+ones. Suites that declare `sample_size_mode: auto-scaling` therefore resolve to
+a `{dataset: sizes}` mapping through `resolve_sample_sizes`, and
+`enumerate_cells` accepts that mapping directly. `scaling_sample_sizes` clamps
+the octave grid `SCALE_GRID` to each prepared pool, appends the pool itself as
+the final point, and drops any grid point within 25 % of it so the fitted curve
+is not double-weighted at the top. Before a dataset is prepared the helper falls
+back to `DEFAULT_SIZES`, so `--list` works ahead of `prepare_data.py`.
 
 Variants and non-default adaptation regimes are encoded in the result filename,
 preventing ablations from overwriting a default cell. Cross-schema runs build a
@@ -80,6 +133,12 @@ Each new result JSON includes the full training/model/extra configuration,
 method reference and disclosed divergence, dataset provenance, git commit and
 dirty flag, train/test counts, wall time, trainable and total parameters, and
 peak GPU memory when CUDA is used.
+
+By default, named suites are isolated under
+`$KBC_OUTPUT_ROOT/paper_runs/<suite>/`; this prevents scientifically different
+suite configurations from colliding even when their dataset/method/seed
+coordinates match. CPU and GPU slices of the same suite safely share that
+directory because their method sets are disjoint.
 
 ## 5. Result gates
 

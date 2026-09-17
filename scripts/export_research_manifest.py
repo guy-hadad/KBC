@@ -8,7 +8,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from eventfm.benchmark.experiments import EXPERIMENT_SUITES  # noqa: E402
+from eventfm.benchmark.experiments import (  # noqa: E402
+    EXPERIMENT_SUITES,
+    resolve_sample_sizes,
+)
 from eventfm.benchmark.runner import enumerate_cells  # noqa: E402
 from eventfm.data.temporal_tokenizers import temporal_tokenizer_names  # noqa: E402
 from eventfm.datasets.registry import DATASET_REGISTRY  # noqa: E402
@@ -105,15 +108,23 @@ def render() -> str:
         ]
     )
     for name, suite in sorted(EXPERIMENT_SUITES.items()):
+        sizes = resolve_sample_sizes(suite)
         cells = enumerate_cells(
             suite.datasets,
             suite.tasks,
             suite.methods,
-            suite.sample_sizes,
+            sizes,
             suite.seeds,
             suite.regimes,
             suite.variants,
         )
+        if isinstance(sizes, dict):
+            size_label = "; ".join(
+                "{}: {}".format(dataset, ", ".join(str(value) for value in grid))
+                for dataset, grid in sizes.items()
+            )
+        else:
+            size_label = ", ".join(str(value) for value in sizes)
         lines.append(
             "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
                 name,
@@ -121,7 +132,7 @@ def render() -> str:
                 len(suite.datasets),
                 ", ".join(suite.tasks),
                 len(suite.methods),
-                ", ".join(str(value) for value in suite.sample_sizes),
+                size_label,
                 ", ".join(str(value) for value in suite.seeds),
                 ", ".join(suite.regimes),
                 ", ".join(suite.variants),

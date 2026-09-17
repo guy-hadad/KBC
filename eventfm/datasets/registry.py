@@ -4,7 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from eventfm.datasets.paths import processed_root
 from eventfm.datasets.tabular import (
@@ -94,6 +94,54 @@ DATASET_REGISTRY: Dict[str, DatasetSpec] = {
             target_positive_rate=0.20,
         ),
     ),
+    "mbd": DatasetSpec(
+        name="mbd",
+        display_name="MBD (full)",
+        source="hf:ai-lab/MBD",
+        citation="Multimodal Banking Dataset (MBD), full release",
+        entity="bank client",
+        mark="transaction event type",
+        label="product-propensity target shipped with the benchmark",
+        config=ConversionConfig(
+            min_events_per_entity=16,
+            max_events_per_entity=128,
+            max_entities=None,
+            max_eval_entities=40000,
+            target_positive_rate=0.20,
+        ),
+    ),
+    "synthea": DatasetSpec(
+        name="synthea",
+        display_name="Synthea EHR",
+        source="hf:richardyoung/synthea-575k-patients",
+        citation="Walonoski et al., Synthea synthetic patient generator (575k release)",
+        entity="patient",
+        mark="SNOMED condition description",
+        label="major adverse cardiovascular or renal event in the held-out tail",
+        config=ConversionConfig(
+            min_events_per_entity=16,
+            max_events_per_entity=128,
+            label_horizon_fraction=0.30,
+            max_entities=None,
+            target_positive_rate=0.20,
+        ),
+    ),
+    "amazon_beauty": DatasetSpec(
+        name="amazon_beauty",
+        display_name="Amazon Beauty 2014",
+        source="hf:milistu/Amazon_Beauty_2014",
+        citation="McAuley et al., Amazon product data (2014), Beauty category",
+        entity="reviewer",
+        mark="item level-2 product category",
+        label="negative review (rating <= 2) in the held-out tail",
+        config=ConversionConfig(
+            min_events_per_entity=5,
+            max_events_per_entity=64,
+            label_horizon_fraction=0.30,
+            max_entities=None,
+            target_positive_rate=0.20,
+        ),
+    ),
     "synthetic": DatasetSpec(
         name="synthetic",
         display_name="Synthetic",
@@ -156,6 +204,10 @@ DATASET_REGISTRY: Dict[str, DatasetSpec] = {
 }
 
 PRIMARY_DATASETS = ("banksim", "paysim", "ibm_aml", "mbd_mini")
+# The three large-scale additions. These carry the sample-scaling programme past
+# the ~3k-sequence ceiling of the primary benchmarks and add a medical and a
+# recommendation domain to what was a banking-only screen.
+SCALE_DATASETS = ("mbd", "synthea", "amazon_beauty")
 CHRONOLOGICAL_DATASETS = tuple("{}_chrono".format(name) for name in PRIMARY_DATASETS)
 GEM_DATASETS = (
     "stackoverflow",
@@ -243,6 +295,29 @@ class DatasetMeta:
 
 def dataset_names() -> List[str]:
     return sorted(DATASET_REGISTRY.keys())
+
+
+def resolve_prepare_names(
+    datasets: Optional[Sequence[str]] = None,
+    paper: bool = False,
+    scale: bool = False,
+) -> List[str]:
+    """Which datasets `scripts/prepare_data.py` should build.
+
+    Explicit names win. ``--scale`` on its own means the three large datasets
+    only, not the primaries as well, so preparing them does not walk the whole
+    primary set first.
+    """
+
+    if datasets:
+        return list(datasets)
+    if paper and scale:
+        return list(PRIMARY_DATASETS + CHRONOLOGICAL_DATASETS + GEM_DATASETS + SCALE_DATASETS)
+    if paper:
+        return list(PRIMARY_DATASETS + CHRONOLOGICAL_DATASETS + GEM_DATASETS)
+    if scale:
+        return list(SCALE_DATASETS)
+    return list(PRIMARY_DATASETS)
 
 
 def processed_dir(name: str) -> Path:

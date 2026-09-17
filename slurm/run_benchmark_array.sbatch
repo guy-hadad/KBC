@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-REPO=/home/guyhada/KBC
+REPO=${KBC_REPO:-/groups/bshapira_group/guyhada/KBC}
 export KBC_DATA_ROOT=/groups/bshapira_group/guyhada/KBC_data
 export KBC_OUTPUT_ROOT=/groups/bshapira_group/guyhada/KBC_outputs
 export HF_HOME=/groups/bshapira_group/guyhada/hf_cache

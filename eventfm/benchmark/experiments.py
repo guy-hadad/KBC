@@ -4,12 +4,60 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
 from eventfm.data.temporal_tokenizers import temporal_tokenizer_names
-from eventfm.datasets.registry import CHRONOLOGICAL_DATASETS, GEM_DATASETS, PRIMARY_DATASETS
+from eventfm.datasets.registry import (
+    CHRONOLOGICAL_DATASETS,
+    GEM_DATASETS,
+    PRIMARY_DATASETS,
+    SCALE_DATASETS,
+    load_dataset_meta,
+)
 from eventfm.methods.gem_tokenization import method_key_for_tokenizer
 
 DEFAULT_SIZES = (64, 128, 256, 512, 1024, 2048)
+
+# The scaling programme on the large datasets continues in octaves past the
+# 2048-sequence ceiling of the primary benchmarks. The grid is clamped per
+# dataset at enumeration time, so the last point is always the dataset's whole
+# training pool rather than a repeat of the previous point.
+SCALE_GRID = (
+    64,
+    128,
+    256,
+    512,
+    1024,
+    2048,
+    4096,
+    8192,
+    16384,
+    32768,
+    65536,
+    131072,
+    262144,
+)
+AUTO_SCALING = "auto-scaling"
 SCREENING_SEEDS = (13, 29, 43)
 HEADLINE_SEEDS = (13, 29, 43, 71, 101)
+
+
+def scaling_sample_sizes(dataset: str, grid: Tuple[int, ...] = SCALE_GRID) -> Tuple[int, ...]:
+    """Octave grid for one dataset, ending at the size of its training pool.
+
+    Falls back to :data:`DEFAULT_SIZES` when the dataset has not been prepared
+    yet, so `--list` works before `scripts/prepare_data.py` has run.
+    """
+
+    try:
+        meta = load_dataset_meta(dataset)
+    except FileNotFoundError:
+        return DEFAULT_SIZES
+    pool = int(meta.stats.get("train", {}).get("num_sequences", 0) or 0)
+    if pool <= 0:
+        return DEFAULT_SIZES
+    # A grid point within 25 % of the pool would be a near-duplicate of the
+    # final point and would weight the scaling fit at one end of the range.
+    sizes = [size for size in grid if size * 1.25 <= pool]
+    sizes.append(pool)
+    return tuple(sizes)
 
 
 @dataclass(frozen=True)
@@ -25,6 +73,19 @@ class ExperimentSuite:
     extra: Dict[str, object] = field(default_factory=dict)
     variants: Tuple[str, ...] = ("default",)
     variant_extra: Dict[str, Dict[str, object]] = field(default_factory=dict)
+
+
+def resolve_sample_sizes(suite: "ExperimentSuite"):
+    """Sample sizes for a suite: one shared grid, or one grid per dataset.
+
+    A suite that declares ``sample_size_mode: auto-scaling`` gets a per-dataset
+    mapping, because its datasets have training pools that differ by an order of
+    magnitude and a shared grid would either truncate or repeat points.
+    """
+
+    if suite.extra.get("sample_size_mode") != AUTO_SCALING:
+        return suite.sample_sizes
+    return {dataset: scaling_sample_sizes(dataset) for dataset in suite.datasets}
 
 
 CORE_METHODS = (
@@ -410,6 +471,29 @@ EXPERIMENT_SUITES: Dict[str, ExperimentSuite] = {
             "in-domain": {},
             "leave-one-out": {"pretrain_datasets": "leave-one-out-primary"},
         },
+    ),
+    "scale-datasets": ExperimentSuite(
+        "scale-datasets",
+        "Sample-scaling curves from 64 sequences to the whole training pool on "
+        "full MBD, Synthea EHR and Amazon Beauty 2014.",
+        SCALE_DATASETS,
+        ("classification", "tpp"),
+        CORE_METHODS,
+        seeds=SCREENING_SEEDS,
+        extra={"sample_size_mode": AUTO_SCALING},
+    ),
+    "scale-datasets-baselines": ExperimentSuite(
+        "scale-datasets-baselines",
+        "The strong supervised baselines that the core zoo does not already "
+        "cover, over the same large-dataset scaling grid.",
+        SCALE_DATASETS,
+        ("classification", "tpp"),
+        # Disjoint from `scale-datasets` on purpose: the controls and CoLES
+        # appear in both method lists, and running them twice would put the same
+        # cell in two result directories.
+        tuple(name for name in STRONG_BASELINES if name not in CORE_METHODS),
+        seeds=SCREENING_SEEDS,
+        extra={"sample_size_mode": AUTO_SCALING},
     ),
     "labeled-adaptation-scaling": ExperimentSuite(
         "labeled-adaptation-scaling",

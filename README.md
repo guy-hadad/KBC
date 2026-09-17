@@ -7,12 +7,16 @@ both of the tasks it cares about.**
 
 * **What** — the completed 14-method architecture screen, expanded to 62
   runnable method/ablation keys and named paper experiment suites.
-* **Where** — four banking benchmarks, four chronological variants, five
-  GEM/TPP-LLM reference datasets, and a synthetic smoke fixture.
+* **Where** — four banking benchmarks, four chronological variants, three
+  large-scale benchmarks (full MBD, a 575k-patient synthetic EHR, and Amazon
+  Beauty 2014), five GEM/TPP-LLM reference datasets, and a synthetic smoke
+  fixture.
 * **How measured** — binary sequence **classification** (a forward-looking
   business label) and a marked **temporal point process** task (predict the next
   event type *and* the time until it happens).
-* **Scaling** — every cell is run at six training-set sizes, so each method gets
+* **Scaling** — every cell is run at six training-set sizes on the screening
+  benchmarks, and in octaves up to the **whole training pool** on the three
+  scale benchmarks (10-12 points, 64 to 93 305 sequences), so each method gets
   its own sample-scaling curve rather than one number.
 
 Everything is built on the Hugging Face ecosystem: models subclass
@@ -27,26 +31,83 @@ where this benchmark still falls short of a publishable result lives in
 **[docs/research/](docs/research/)**.
 
 This is an **architecture-screening benchmark**, not a foundation-model result:
-the training sets are in the low thousands of sequences, several named methods
-are controlled approximations, and pretraining shares the same small corpus as
-downstream training.
+several named methods are controlled approximations, and pretraining shares the
+same corpus as downstream training. The original screen ran entirely on training
+sets in the low thousands of sequences; the `scale-datasets` suite extends that
+to 93 305 (Synthea), 34 023 (Amazon Beauty) and 30 665 (full MBD) labelled
+sequences. That widens the measured scaling range from 5 octaves to 10, and is
+what makes every fitted power law pass its R² gate — but it does not change the
+approximation caveats, and it does not make Synthea real clinical data.
 
 The exhaustive live inventory is in
 **[docs/research/implementation_manifest.md](docs/research/implementation_manifest.md)**;
 the commands and experiment map are in
-**[docs/research/experiment_execution.md](docs/research/experiment_execution.md)**.
+**[docs/research/experiment_execution.md](docs/research/experiment_execution.md)**,
+and the live capped run is tracked in
+**[docs/research/campaign_status.md](docs/research/campaign_status.md)**.
 
 ---
 
 ## Results
 
-Generated tables and figures live in **[docs/benchmark/](docs/benchmark/)**:
+Two campaigns, kept in separate directories so neither overwrites the other.
+
+### Large-dataset scaling — **[docs/benchmark_scale/](docs/benchmark_scale/)**
+
+The current programme: full MBD, Synthea EHR and Amazon Beauty 2014, over
+**10-12 sample points spanning 64 to 93 305 training sequences**.
+
+> **Interim: 3 013 of 3 360 cells, zero failures** (updated 2026-09-17).
+> `scale-datasets-baselines` is complete (864/864). Outstanding: 152 CPU cells
+> of `scale-datasets` (4 workers still running) and 195 GPU cells (lane
+> cancelled, see [gpu_resume.md](docs/research/gpu_resume.md)). Provisional until the campaign closes — live status in
+> [docs/research/campaign_status.md](docs/research/campaign_status.md).
+
+Mean over three seeds at each dataset's largest sample point:
+
+| Dataset | Task | Best | Score | Control | Gain |
+| --- | --- | --- | ---: | ---: | ---: |
+| MBD (full) | classification (AUC) | `pragma-mlm` | 0.731 | 0.696 | +0.035 |
+| Synthea EHR | classification (AUC) | `supervised-gru` | 0.882 | 0.833 | +0.049 |
+| Amazon Beauty | classification (AUC) | `autoregressive-transformer` ¹ | 0.708 | 0.589 | **+0.119** |
+| MBD (full) | TPP (next-type acc.) | `pragma-mlm` | 0.586 | 0.489 | +0.097 |
+| Synthea EHR | TPP (next-type acc.) | `autoencoder` | 0.439 | 0.319 | **+0.120** |
+| Amazon Beauty | TPP (next-type acc.) | `transaction-mlm` | 0.492 | 0.463 | +0.028 |
+
+¹ A statistical tie: `thp`, `pragma-mlm` and `autoencoder` are within 0.0004 AUC. The earlier `thp` lead was a one-seed mean. The control has two of three seeds at this point.
+
+**The headline gain is reliability, not the scores.** Every fitted scaling law
+passes the `R² >= 0.70` gate — on every dataset, for every method except the
+Markov control. The screen below could not say that: PaySim failed the gate for
+nearly every method, and several of its exponents came out negative. Ten to
+twelve points across four orders of magnitude of `N` is what bought the
+difference, and it is the main reason these datasets were added.
+
+Three results carry over from the screen and now hold on three new datasets and
+two new domains:
+
+* **The Markov control does not scale at all** — `b` of 0.004, 0.001, 0.001, all
+  three failing the R² gate. A first-order transition table converts no amount
+  of extra data into accuracy, which is exactly what it should do. Every neural
+  method has an order of magnitude more slope.
+* **Classification scales about twice as fast as the TPP task**, `b ≈ 0.05-0.13`
+  against `0.04-0.05`. More labelled entities helps a sequence-level label more
+  than it helps next-mark prediction, where the mark distribution binds.
+* **Ranking by slope and ranking by score still disagree.** `autoencoder` has
+  the steepest classification exponent (0.126) and tops no cell; `supervised-gru`
+  wins Synthea outright on a middling 0.094. Reading only the largest-`N` table
+  would miss both.
+
+### Legacy architecture screen — **[docs/benchmark/](docs/benchmark/)**
+
+The original four-dataset, six-point run. Superseded by the above for anything
+scaling-related, kept because it is the complete 14-method screen:
 
 | File | What it holds |
 | --- | --- |
 | [`results.md`](docs/benchmark/results.md) | all methods per dataset and task, both tasks |
 | [`results.csv`](docs/benchmark/results.csv) | every cell: metric × method × dataset × sample size |
-| `figures/by_method/` | **one scaling curve per method**, its four datasets overlaid (160 files) |
+| `figures/by_method/` | **one scaling curve per method**, its datasets overlaid (160 files for the legacy four-dataset run) |
 | `figures/by_dataset/` | per dataset, small multiples faceted by architecture family (64 files) |
 
 > **Coverage: complete.** All 624 cells ran, none failed — 480 non-LLM on a CPU
@@ -71,7 +132,7 @@ with `<metric>` one of `auc`, `average_precision`, `accuracy`, `macro_f1`
 `delta_log_rmse`, `delta_log_mae` (TPP). Each figure ships a light and a dark
 variant.
 
-### What the full run says
+#### What the legacy run says
 
 **624 cells complete — 14 methods × 4 datasets × 2 tasks × 6 sample sizes, zero
 failures.** Best method per cell at the largest sample point, against the
@@ -135,7 +196,7 @@ Where the models clearly earn their keep is IBM AML and MBD-mini on the TPP
 task: **+0.16** and **+0.08** next-type accuracy over Markov, with curves still
 rising at n=2048.
 
-### Scaling laws
+#### Scaling laws (legacy four-dataset run)
 
 Each curve's error is fitted to **`E(N) = a · N^-b`**, where `N` is the number of
 labelled training sequences. **`b` is the data-scaling exponent** — how fast the
@@ -201,7 +262,7 @@ Reading these:
   measured range**, not an asymptotic claim. Bracketed counts below 3 (e.g.
   `pragma` at [1]) rest on a single dataset and should not carry weight.
 
-### Method scaling curves, at a glance
+#### Method scaling curves, at a glance (legacy)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/benchmark/figures/by_dataset/ibm_aml__classification__auc.dark.svg">
@@ -256,12 +317,54 @@ embedding (TPP-LLM), byte-token inter-arrival times in the prompt
 
 ## The datasets
 
-| Dataset | Source | Sequence = | Mark | Marks |
-| --- | --- | --- | --- | --- |
-| BankSim | `github:atavci/fraud-detection-on-banksim-data` | customer | merchant category | 15 |
-| PaySim | `hf:theman10/paysim` | destination account | transfer type | 4 |
-| IBM AML (HI-Small) | `hf:OsamaMIT/IBM-AML-HI-Small` | receiving account | payment format | 7 |
-| MBD-mini | `hf:ai-lab/MBD-mini` | bank client | transaction event type | 54 |
+### The four screening benchmarks
+
+| Dataset | Source | Sequence = | Mark | Marks | Train pool |
+| --- | --- | --- | --- | ---: | ---: |
+| BankSim | `github:atavci/fraud-detection-on-banksim-data` | customer | merchant category | 15 | 2 644 |
+| PaySim | `hf:theman10/paysim` | destination account | transfer type | 4 | 1 416 |
+| IBM AML (HI-Small) | `hf:OsamaMIT/IBM-AML-HI-Small` | receiving account | payment format | 7 | 1 926 |
+| MBD-mini | `hf:ai-lab/MBD-mini` | bank client | transaction event type | 52 | 3 000 |
+
+### The three scale benchmarks
+
+These carry the sample-scaling programme past the ~3k-sequence ceiling above,
+and take the benchmark out of banking-only into a medical and a recommendation
+domain. Register them as a group with `SCALE_DATASETS`.
+
+| Dataset | Source | Sequence = | Mark | Marks | Train pool |
+| --- | --- | --- | --- | ---: | ---: |
+| MBD (full) | `hf:ai-lab/MBD` | bank client | transaction event type | 53 | 30 665 |
+| Synthea EHR | `hf:richardyoung/synthea-575k-patients` | patient | SNOMED condition | 65 | 93 305 |
+| Amazon Beauty 2014 | `hf:milistu/Amazon_Beauty_2014` | reviewer | level-2 product category | 10 | 34 023 |
+
+* **MBD (full)** is the complete 69 GB release that MBD-mini is a 10 % client
+  subsample of — same schema, same label, same conversion, **10.2x the training
+  pool** (30 665 against 3 000). Only `ptls` (the transaction stream), `targets`
+  and `client_split` are fetched; `detail.tar.gz` duplicates `ptls` row-wise and
+  is skipped. All 1 000 000 clients are converted; `KBC_MBD_MAX_CLIENTS` caps
+  that if a smaller run is wanted. Validation and test are capped at 40 000
+  sequences each by `max_eval_entities`, because every cell reads the whole
+  evaluation split and that is what keeps a single cell inside 48 GB. The
+  subsample is uniform and label-blind, so prevalence (1.16 %) is preserved.
+* **Synthea EHR** is the diagnosis stream of 575 415 synthetic patients. The
+  mark is the SNOMED condition description — the largest mark vocabulary in the
+  benchmark — and the label is whether a **major adverse cardiovascular or
+  renal event** (MI, congestive heart failure, CKD stage 4, ESRD) occurs in the
+  held-out tail of the patient's history. Natural prevalence is 6.31 %, and
+  validation and test keep it.
+* **Amazon Beauty 2014** is the McAuley Amazon product-data Beauty category,
+  1.21 M reviewers over 2.02 M reviews, filtered to the 5-core convention of at
+  least five reviews per reviewer. The label is whether the reviewer posts a
+  **negative review (rating <= 2)** in the held-out tail. Its natural
+  prevalence is 26.3 %, which is above the rebalancing target, so this is the
+  one dataset in the benchmark whose training split is **never downsampled**.
+
+Two honest caveats. Synthea is synthetic, like BankSim and PaySim — it is not a
+substitute for MIMIC-IV or another credentialed real-EHR corpus, and no claim
+here transfers to real clinical data. Amazon Beauty histories are short (mean
+6.0 observed events), so like PaySim it tests scale rather than long-range
+temporal structure.
 
 Raw downloads, converted splits and run outputs are kept off the git checkout on
 group storage. Override with environment variables:
@@ -290,7 +393,7 @@ python scripts/prepare_data.py
 # 2. one cell, to check the setup
 python scripts/run_benchmark.py --dataset banksim --task tpp --method thp --samples 512
 
-# 3. the full 624-cell grid as a SLURM GPU array
+# 3. the legacy 624-cell grid as a SLURM GPU array
 sbatch slurm/run_benchmark_array.sbatch
 
 # 4. tables and scaling figures
@@ -307,6 +410,25 @@ python scripts/run_experiments.py --suite paper-headline --list
 
 `scripts/run_benchmark.py --all --list` prints the grid. `--skip-gpu-only`
 excludes the three LM entries for a CPU-only run.
+
+### The large-dataset scaling programme
+
+```bash
+# prepare the three scale benchmarks (~31 GB download for full MBD)
+python scripts/prepare_data.py mbd synthea amazon_beauty
+
+# the sample-scaling grid is resolved per dataset, ending at its whole pool
+python scripts/run_experiments.py --suite scale-datasets --list
+
+# CPU methods now, LLM entries as a separate GPU array
+python scripts/submit_paper_experiments.py --suites scale-datasets scale-datasets-baselines
+```
+
+Because the three pools differ by an order of magnitude, the grid is
+**per dataset**: `enumerate_cells` accepts a `{dataset: sizes}` mapping and
+`scaling_sample_sizes` clamps the octave grid to each pool, dropping any point
+within 25 % of the pool so the final point is not a near-duplicate. Amazon
+Beauty therefore runs `64 … 16384, 34023` and Synthea `64 … 65536, 93305`.
 
 ---
 

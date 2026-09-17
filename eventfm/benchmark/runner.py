@@ -12,9 +12,10 @@ import os
 import subprocess
 import time
 import traceback
+import uuid
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Mapping, Optional, Sequence
 
 import numpy as np
 import torch
@@ -72,15 +73,26 @@ def enumerate_cells(
     datasets: Sequence[str],
     tasks: Sequence[str],
     methods: Sequence[str],
-    sample_sizes: Sequence[int],
+    sample_sizes,
     seeds: Sequence[int] = (13,),
     regimes: Sequence[str] = ("full",),
     variants: Sequence[str] = ("default",),
 ) -> List[BenchmarkCell]:
-    """Expand the grid, skipping method/task pairs a method does not support."""
+    """Expand the grid, skipping method/task pairs a method does not support.
+
+    ``sample_sizes`` is either one sequence shared by every dataset or a mapping
+    from dataset name to its own sequence. The mapping form exists because the
+    datasets no longer share a training-pool size: clamping a single grid to the
+    smallest pool would throw away most of the scaling range on the large ones,
+    and letting it run past a pool would silently repeat the largest point.
+    """
 
     cells: List[BenchmarkCell] = []
     for dataset in datasets:
+        if isinstance(sample_sizes, Mapping):
+            dataset_sizes = sample_sizes.get(dataset, sample_sizes.get("default", ()))
+        else:
+            dataset_sizes = sample_sizes
         for task in tasks:
             dataset_spec = DATASET_REGISTRY.get(dataset)
             if dataset_spec is not None and task not in dataset_spec.supports:
@@ -89,7 +101,7 @@ def enumerate_cells(
                 spec = METHOD_REGISTRY.get(method)
                 if spec is None or task not in spec.supports:
                     continue
-                for sample_size in sample_sizes:
+                for sample_size in dataset_sizes:
                     for seed in seeds:
                         for regime in regimes:
                             for variant in variants:
@@ -152,24 +164,111 @@ def _stratified_subsample(
     return chosen
 
 
+def _count_lines(path: Path) -> int:
+    """Sequence count of a JSONL split without parsing it."""
+
+    total = 0
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            total += block.count(b"\n")
+    return total
+
+
+def _publish_once(temporary: Path, path: Path) -> None:
+    """Link a finished temp file into place, leaving any existing file alone.
+
+    `os.replace` is atomic but *swaps the inode*, so a worker that already holds
+    the old path open gets `OSError: [Errno 116] Stale file handle` on NFS. With
+    32 workers converging on the same largest-`n` subset that is a real race: it
+    cost three cells on the first pass of the scale-datasets campaign. `os.link`
+    instead fails if the target exists, so the file is created exactly once and
+    never swapped underneath a reader. Contents are a pure function of
+    (sample size, seed, source fingerprint), so first writer wins is safe.
+    """
+
+    try:
+        os.link(temporary, path)
+    except FileExistsError:
+        pass
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def subsampled_train_path(
     meta: DatasetMeta, sample_size: int, seed: int, cache_dir: Optional[Path] = None
 ) -> tuple:
-    """Materialise a stratified training subset, cached on disk for reuse."""
+    """Materialise a stratified training subset, cached on disk for reuse.
+
+    The cache is checked before the split is read. On the large datasets the
+    training split is hundreds of megabytes of JSONL, and parsing it only to
+    rediscover an already-cached subset was the largest single allocation in a
+    small-sample cell.
+    """
+
+    path = _subset_path(meta, sample_size, seed, cache_dir)
+    if path.exists():
+        return str(path), _count_lines(path)
 
     sequences = load_jsonl_sequences(meta.splits["train"])
     subset = _stratified_subsample(sequences, sample_size, seed)
+    del sequences
+    temporary = path.with_name(
+        "{}.{}.{}.tmp".format(path.name, os.getpid(), uuid.uuid4().hex[:8])
+    )
+    write_jsonl(str(temporary), subset)
+    _publish_once(temporary, path)
+    return str(path), len(subset)
+
+
+def _subset_path(meta: DatasetMeta, sample_size: int, seed: int, cache_dir: Optional[Path] = None) -> Path:
+    """Cache path for one training subset. Single source of truth for the name."""
+
     directory = cache_dir or (output_root() / "subsets" / meta.name)
     directory.mkdir(parents=True, exist_ok=True)
     source_stat = Path(meta.splits["train"]).stat()
     source_identity = "{}:{}".format(source_stat.st_size, source_stat.st_mtime_ns)
     fingerprint = hashlib.sha256(source_identity.encode("utf-8")).hexdigest()[:10]
-    path = directory / "train_n{}_s{}_{}.jsonl".format(sample_size, seed, fingerprint)
-    if not path.exists():
-        temporary = path.with_name("{}.{}.tmp".format(path.name, os.getpid()))
+    return directory / "train_n{}_s{}_{}.jsonl".format(sample_size, seed, fingerprint)
+
+
+def materialize_subsets(
+    meta: DatasetMeta,
+    sample_sizes: Sequence[int],
+    seeds: Sequence[int],
+    cache_dir: Optional[Path] = None,
+) -> Dict[str, int]:
+    """Write every training subset for one dataset, reading the split once.
+
+    Run this before an array so the workers only ever *read* the cache. Two
+    reasons: a worker that has to build a subset parses the whole training split
+    (hundreds of megabytes on the large datasets), and concurrent builders of
+    the same subset are what produced the `Errno 116` failures that
+    `_publish_once` guards against.
+    """
+
+    wanted = [
+        (int(size), int(seed))
+        for size in sample_sizes
+        for seed in seeds
+        if not _subset_path(meta, int(size), int(seed), cache_dir).exists()
+    ]
+    written: Dict[str, int] = {}
+    if not wanted:
+        return written
+
+    sequences = load_jsonl_sequences(meta.splits["train"])
+    for size, seed in wanted:
+        path = _subset_path(meta, size, seed, cache_dir)
+        if path.exists():
+            continue
+        subset = _stratified_subsample(sequences, size, seed)
+        temporary = path.with_name(
+            "{}.{}.{}.tmp".format(path.name, os.getpid(), uuid.uuid4().hex[:8])
+        )
         write_jsonl(str(temporary), subset)
-        temporary.replace(path)
-    return str(path), len(subset)
+        _publish_once(temporary, path)
+        written[path.name] = len(subset)
+    return written
 
 
 def build_vocabulary(
@@ -225,9 +324,11 @@ def _cross_dataset_pretrain_path(
         target_dataset, sample_size_per_dataset, seed, fingerprint
     )
     if not path.exists():
-        temporary = path.with_name("{}.{}.tmp".format(path.name, os.getpid()))
+        temporary = path.with_name(
+            "{}.{}.{}.tmp".format(path.name, os.getpid(), uuid.uuid4().hex[:8])
+        )
         write_jsonl(str(temporary), sequences)
-        temporary.replace(path)
+        _publish_once(temporary, path)
     return str(path), len(sequences), source_metas
 
 
@@ -334,9 +435,22 @@ def _git_provenance() -> Dict[str, object]:
                 text=True,
             ).stdout.strip()
         )
-        return {"commit": commit, "dirty": dirty}
+        source_digest = hashlib.sha256()
+        source_files = [repository / "pyproject.toml"]
+        for directory in ("eventfm", "scripts"):
+            source_files.extend(sorted((repository / directory).rglob("*.py")))
+        for path in source_files:
+            if not path.is_file():
+                continue
+            source_digest.update(str(path.relative_to(repository)).encode("utf-8"))
+            source_digest.update(path.read_bytes())
+        return {
+            "commit": commit,
+            "dirty": dirty,
+            "source_tree_sha256": source_digest.hexdigest(),
+        }
     except (OSError, subprocess.SubprocessError):
-        return {"commit": None, "dirty": None}
+        return {"commit": None, "dirty": None, "source_tree_sha256": None}
 
 
 def run_cell(
@@ -384,7 +498,9 @@ def run_cell(
             status="ok",
             wall_seconds=time.time() - started,
             num_train_sequences=int(context.extra.get("num_train_sequences", 0)),
-            num_test_sequences=len(load_jsonl_sequences(context.test_path)),
+            # Counted, not parsed: the method has already read this split, and
+            # re-parsing 650 MB of JSONL for a row count was pure overhead.
+            num_test_sequences=_count_lines(Path(context.test_path)),
             metadata={
                 "method": {
                     "display_name": method_spec.display_name,
@@ -418,6 +534,12 @@ def run_cell(
             wall_seconds=time.time() - started,
         )
 
-    with target.open("w", encoding="utf-8") as handle:
+    # Written through a temp file: `open("w")` truncates before the dump, so a
+    # worker killed in that window (scancel, node failure, the pre-timeout
+    # requeue) would leave a half-written result behind. Distinct cells write
+    # distinct names, so there is no concurrent reader to strand here.
+    temporary = target.with_name("{}.{}.{}.tmp".format(target.name, os.getpid(), uuid.uuid4().hex[:8]))
+    with temporary.open("w", encoding="utf-8") as handle:
         json.dump(result.to_json(), handle, indent=2, sort_keys=True)
+    temporary.replace(target)
     return result

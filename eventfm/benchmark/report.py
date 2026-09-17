@@ -83,8 +83,15 @@ class Record:
 def load_results(results_dir: Path) -> List[Record]:
     records: List[Record] = []
     for path in sorted(Path(results_dir).glob("*.json")):
-        with path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError) as exc:
+            # A result truncated by a killed worker must not take down the whole
+            # report. Skipping leaves the cell looking unrun, which is what
+            # `--only-missing` needs in order to redo it.
+            print("[report] skipping unreadable result {}: {}".format(path.name, exc))
+            continue
         cell = payload.get("cell", {})
         records.append(
             Record(
@@ -549,6 +556,38 @@ def write_ablation_table(records: Sequence[Record], path: Path) -> Path:
     return path
 
 
+def _points_sentence(records: Sequence[Record], datasets: Sequence[str]) -> str:
+    """State the real number of scaling points per dataset.
+
+    The grids are resolved per dataset and differ by dataset, so a hard-coded
+    count would misdescribe every suite but the original screen.
+    """
+
+    per_dataset = {}
+    for name in datasets:
+        sizes = sorted({r.sample_size for r in records if r.dataset == name})
+        if sizes:
+            per_dataset[name] = sizes
+    if not per_dataset:
+        return "Fitted per curve over the measured sample sizes."
+    counts = {len(sizes) for sizes in per_dataset.values()}
+    if len(counts) == 1:
+        return "Fitted on {} points per curve, spanning {} to {} training sequences.".format(
+            counts.pop(),
+            min(min(sizes) for sizes in per_dataset.values()),
+            max(max(sizes) for sizes in per_dataset.values()),
+        )
+    detail = ", ".join(
+        "{} {}".format(DATASET_REGISTRY[name].display_name, len(sizes))
+        for name, sizes in sorted(per_dataset.items())
+    )
+    return "Fitted per curve on the points each dataset provides ({}), spanning {} to {} training sequences.".format(
+        detail,
+        min(min(sizes) for sizes in per_dataset.values()),
+        max(max(sizes) for sizes in per_dataset.values()),
+    )
+
+
 def write_scaling_exponent_table(records: Sequence[Record], path: Path) -> Path:
     """Fitted data-scaling exponents, per method and dataset."""
 
@@ -570,8 +609,9 @@ def write_scaling_exponent_table(records: Sequence[Record], path: Path) -> Path:
         "This ranks architectures by *data efficiency* rather than by score at one",
         "sample size, which is the more relevant question for a foundation model.",
         "",
-        "Fitted on six points per curve, so read `b` as a local slope over the",
-        "measured range, not an asymptotic claim. Values marked `*` have",
+        _points_sentence(records, datasets),
+        "Read `b` as a local slope over the measured range, not an asymptotic",
+        "claim. Values marked `*` have",
         "`R² < {:.2f}` — the power law does not describe that curve well and the".format(
             MIN_R_SQUARED
         ),
@@ -580,10 +620,10 @@ def write_scaling_exponent_table(records: Sequence[Record], path: Path) -> Path:
         "Two means are given. **`Mean b (reliable)` is the one to read** — it",
         "averages only the fits that pass the R² gate, with the count in",
         "parentheses, and it is what the rows are sorted by. `Mean b (all)`",
-        "includes the flagged fits and is shown so the difference is visible: on",
-        "classification, PaySim fails the gate for nearly every method, and its",
-        "occasional *negative* exponent (error rising with data) is the signature",
-        "of a task with no learnable signal rather than of a bad model.",
+        "includes the flagged fits and is shown so the difference is visible. A",
+        "dataset that fails the gate for nearly every method, or shows an",
+        "occasional *negative* exponent (error rising with data), is signalling a",
+        "task with no learnable signal rather than a set of bad models.",
         "",
     ]
 
