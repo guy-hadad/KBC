@@ -20,10 +20,16 @@ import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import Dataset
 
-from eventfm.data.dataset import JsonlEventDataset
 from eventfm.data.flat import FlatEventCollator
 from eventfm.data.schema import EventSequence
-from eventfm.methods.base import STATUS_APPROXIMATION, MethodSpec, register_method, resolve_device
+from eventfm.methods.base import (
+    STATUS_APPROXIMATION,
+    MethodContext,
+    MethodSpec,
+    pretraining_dataset,
+    register_method,
+    resolve_device,
+)
 from eventfm.methods.flat_method import FlatMethod
 from eventfm.models.configuration_flat import FlatEventConfig
 from eventfm.models.modeling_flat import FlatEventBackbone
@@ -34,13 +40,15 @@ class _SubSequenceView(Dataset):
 
     def __init__(
         self,
-        sequences: Sequence[EventSequence],
+        sequences: Dataset,
         num_views: int = 2,
         min_length: int = 8,
         max_length: int = 32,
         seed: int = 13,
     ) -> None:
-        self.sequences = list(sequences)
+        # Indexed, never copied: `list()` over a lazily-read pretraining corpus
+        # would parse the whole file into memory.
+        self.sequences = sequences
         self.num_views = int(num_views)
         self.min_length = int(min_length)
         self.max_length = int(max_length)
@@ -112,6 +120,17 @@ class Coles(FlatMethod):
     num_views = 4
     temperature = 0.1
 
+    def __init__(self, context: MethodContext) -> None:
+        super().__init__(context)
+        # Standalone CoLES *is* the self-supervised stage, so it takes the same
+        # budget overrides as the objective-pretrained methods. A hybrid that runs
+        # it as a second stage assigns `contrastive_epochs` after construction,
+        # which keeps that stage on its own `contrastive_epochs` setting.
+        self.contrastive_epochs = int(
+            float(context.extra.get("pretrain_epochs", self.contrastive_epochs))
+        )
+        self.max_steps = int(context.extra.get("pretrain_max_steps", -1))
+
     def configure(self, config: FlatEventConfig) -> FlatEventConfig:
         config.pooling = "mean"
         return config
@@ -134,11 +153,8 @@ class Coles(FlatMethod):
             nn.Linear(config.hidden_size, config.hidden_size),
         ).to(device)
 
-        sequences = JsonlEventDataset(
-            str(context.extra.get("pretrain_path", context.train_path))
-        ).sequences
         dataset = _SubSequenceView(
-            sequences,
+            pretraining_dataset(context),
             num_views=self.num_views,
             max_length=min(32, context.training.max_events),
             seed=context.training.seed,
@@ -161,6 +177,7 @@ class Coles(FlatMethod):
         parameters = list(encoder.parameters()) + list(projection.parameters())
         optimizer = torch.optim.AdamW(parameters, lr=context.training.learning_rate)
 
+        steps = 0
         encoder.train()
         for _ in range(int(self.contrastive_epochs)):
             for batch in loader:
@@ -172,6 +189,11 @@ class Coles(FlatMethod):
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(parameters, 1.0)
                 optimizer.step()
+                steps += 1
+                if 0 < self.max_steps <= steps:
+                    break
+            if 0 < self.max_steps <= steps:
+                break
 
         model.backbone.load_state_dict({
             key: value.cpu() for key, value in encoder.state_dict().items()

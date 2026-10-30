@@ -340,9 +340,32 @@ def build_context(
     extra: Optional[Dict[str, object]] = None,
 ) -> MethodContext:
     meta = load_dataset_meta(cell.dataset)
-    train_path, num_train = subsampled_train_path(meta, cell.sample_size, cell.seed)
     resolved_extra = dict(extra or {})
     pretrain_sources = resolved_extra.get("pretrain_datasets")
+    # An unlabeled corpus only changes what the self-supervised stage reads. It
+    # is kept out of `build_vocabulary` on purpose: the vocabulary stays fitted
+    # on the labeled subset and unseen corpus values map to [UNK]. Resolved
+    # before the subset is materialised so that a missing corpus fails fast.
+    corpus = resolved_extra.get("pretrain_corpus")
+    if corpus is not None:
+        if corpus != "pool":
+            raise ValueError("Unknown `pretrain_corpus` `{}`; expected `pool`.".format(corpus))
+        resolved_extra["pretrain_corpus_path"] = str(
+            Path(meta.splits["train"]).parent / "pool_train.jsonl"
+        )
+    corpus_path = resolved_extra.get("pretrain_corpus_path")
+    if corpus_path:
+        if pretrain_sources:
+            raise ValueError(
+                "`pretrain_datasets` and `pretrain_corpus` both choose the self-supervised "
+                "data; set only one."
+            )
+        if not Path(str(corpus_path)).is_file():
+            raise FileNotFoundError(
+                "Pretraining corpus `{}` for dataset `{}` does not exist; build it first "
+                "(for MBD: scripts/build_mbd_pool.py).".format(corpus_path, cell.dataset)
+            )
+    train_path, num_train = subsampled_train_path(meta, cell.sample_size, cell.seed)
     source_metas = []
     additional_paths = []
     model_event_types = list(meta.event_types)

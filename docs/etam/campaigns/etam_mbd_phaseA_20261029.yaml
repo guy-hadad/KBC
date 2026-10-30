@@ -1,0 +1,38 @@
+# ETAM on full MBD, phase A: build the unlabeled train pool, and a GPU smoke run
+# that exercises pretrain -> multitask fine-tune -> full test evaluation, to
+# measure throughput and memory before the main campaign is sized.
+name: etam_mbd_phaseA_20261029
+workdir: /groups/bshapira_group/guyhada/KBC
+snapshot: [eventfm, scripts]
+setup: |
+  source "$(conda info --base)/etc/profile.d/conda.sh"
+  conda activate KBC
+  export KBC_DATA_ROOT=/groups/bshapira_group/guyhada/KBC_data
+  export KBC_OUTPUT_ROOT=/groups/bshapira_group/guyhada/KBC_outputs
+  export HF_HOME=/groups/bshapira_group/guyhada/hf_cache HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+  python -c "import sys; sys.path.insert(0, '$CODE_DIR'); import eventfm; print('eventfm from', eventfm.__file__)"
+
+defaults: {kind: cpu, cpus: 4, mem: 16G, time: "4:00:00"}
+
+groups:
+  - name: pool
+    # Imports polars, so it stays on the default cpu128|cpu256 constraint.
+    resources: {kind: cpu, cpus: 4, mem: 48G, time: "10:00:00"}
+    grid: {dataset: [mbd]}
+    command: >-
+      python {code_dir}/scripts/build_mbd_pool.py --result {run_dir}/result.json
+
+  - name: smoke
+    resources: {kind: gpu, gpus: 1, constraint: "rtx_4090|rtx_6000", mem: 24G, time: "3:00:00", gpu_check: torch}
+    grid: {seed: [13]}
+    command: >-
+      python {code_dir}/scripts/etam.py run stage=pretrain pretrain_store=train
+      run_name=pre output_dir={run_dir} seed={seed} max_steps=400 eval_every=200
+      val_users=2000 batch_size=128 write_results=false &&
+      python {code_dir}/scripts/etam.py run stage=finetune task=multi
+      run_name=ft output_dir={run_dir} seed={seed} init_checkpoint={run_dir}/pre/best.pt
+      max_steps=300 eval_every=150 val_users=2000 batch_size=128 write_results=false
+      result_path={run_dir}/result.json
+
+harvest:
+  aggregate_over: [seed]

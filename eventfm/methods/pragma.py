@@ -7,8 +7,9 @@ profile token and continuous time-age encodings.
 
 Two variants are benchmarked. ``pragma`` trains the downstream head directly;
 ``pragma-mlm`` first runs the paper's masked-value pretraining stage on the same
-training split, which is the part of the recipe that makes it a foundation
-model rather than a supervised encoder.
+training split (or on an unlabeled ``pretrain_corpus_path`` when one is set),
+which is the part of the recipe that makes it a foundation model rather than a
+supervised encoder.
 """
 
 from typing import Any, Callable, Dict, Sequence
@@ -24,6 +25,7 @@ from eventfm.methods.base import (
     MethodSpec,
     TorchMethod,
     _training_arguments,
+    pretraining_dataset,
     register_method,
 )
 from eventfm.models.configuration_pragma import PragmaConfig
@@ -87,16 +89,20 @@ class Pragma(TorchMethod):
 
     def pretrain(self, model: torch.nn.Module) -> None:
         context = self.context
+        # The class attribute, not `extra`, decides *whether* to pretrain, so the
+        # supervised `pragma` entry stays supervised under a suite-wide budget.
         if self.pretrain_epochs <= 0.0:
             return
         pretrain_model = PragmaForMaskedEventModeling(self.build_config())
         arguments = _training_arguments(context, label_names=None)
-        arguments.num_train_epochs = float(self.pretrain_epochs)
-        arguments.max_steps = -1
+        arguments.num_train_epochs = float(
+            context.extra.get("pretrain_epochs", self.pretrain_epochs)
+        )
+        arguments.max_steps = int(context.extra.get("pretrain_max_steps", -1))
         Trainer(
             model=pretrain_model,
             args=arguments,
-            train_dataset=JsonlEventDataset(context.train_path),
+            train_dataset=pretraining_dataset(context),
             data_collator=PragmaDataCollator(
                 tokenizer=context.tokenizer,
                 task="pretrain",

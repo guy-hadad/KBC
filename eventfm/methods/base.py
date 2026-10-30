@@ -16,6 +16,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from eventfm.data.dataset import JsonlEventDataset, LazyJsonlEventDataset
 from eventfm.data.tokenizer import EventTokenizer, EventVocabulary
 from eventfm.datasets.registry import DatasetMeta
 from eventfm.training.metrics import classification_metrics, tpp_metrics
@@ -215,6 +216,25 @@ def _training_arguments(context: MethodContext, label_names: Optional[Sequence[s
     ):
         supported["evaluation_strategy"] = "no"
     return TrainingArguments(**supported)
+
+
+def pretraining_dataset(context: MethodContext) -> Dataset:
+    """What a self-supervised stage reads, shared so every method agrees.
+
+    ``pretrain_corpus_path`` names an unlabeled corpus that can be far larger
+    than the labeled split, so it is read lazily rather than parsed into memory.
+    It only feeds this stage; the supervised stage keeps ``train_path``. Without
+    it, the stage reads the cross-dataset pool or the labeled subset as before.
+    """
+
+    corpus = context.extra.get("pretrain_corpus_path")
+    if not corpus:
+        return JsonlEventDataset(str(context.extra.get("pretrain_path", context.train_path)))
+    cap = context.extra.get("pretrain_corpus_max_sequences")
+    dataset = LazyJsonlEventDataset(str(corpus), max_sequences=None if cap is None else int(cap))
+    # Recorded so the result file states how much unlabeled data was actually used.
+    context.extra["pretrain_corpus_num_sequences"] = len(dataset)
+    return dataset
 
 
 class TorchMethod(Method):

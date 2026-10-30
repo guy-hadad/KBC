@@ -5,13 +5,13 @@ from typing import Sequence
 import torch
 from transformers import Trainer
 
-from eventfm.data.dataset import JsonlEventDataset
 from eventfm.data.pretraining import EventPretrainingCollator
 from eventfm.methods.base import (
     STATUS_APPROXIMATION,
     STATUS_IMPLEMENTED,
     MethodSpec,
     _training_arguments,
+    pretraining_dataset,
     register_method,
 )
 from eventfm.methods.coles import Coles
@@ -56,9 +56,7 @@ class _ObjectivePretrainedMethod(FlatMethod):
         Trainer(
             model=pretrain_model,
             args=arguments,
-            train_dataset=JsonlEventDataset(
-                str(context.extra.get("pretrain_path", context.train_path))
-            ),
+            train_dataset=pretraining_dataset(context),
             data_collator=EventPretrainingCollator(
                 tokenizer=context.tokenizer,
                 task="pretrain",

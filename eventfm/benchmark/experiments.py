@@ -35,6 +35,8 @@ SCALE_GRID = (
     262144,
 )
 AUTO_SCALING = "auto-scaling"
+# Only the final auto-scaling point, i.e. each dataset's whole labeled pool.
+FULL_POOL = "full-pool"
 SCREENING_SEEDS = (13, 29, 43)
 HEADLINE_SEEDS = (13, 29, 43, 71, 101)
 
@@ -81,11 +83,16 @@ def resolve_sample_sizes(suite: "ExperimentSuite"):
     A suite that declares ``sample_size_mode: auto-scaling`` gets a per-dataset
     mapping, because its datasets have training pools that differ by an order of
     magnitude and a shared grid would either truncate or repeat points.
+    ``full-pool`` keeps only that grid's last point, so a suite can target the
+    whole labeled pool without hard-coding its size.
     """
 
-    if suite.extra.get("sample_size_mode") != AUTO_SCALING:
-        return suite.sample_sizes
-    return {dataset: scaling_sample_sizes(dataset) for dataset in suite.datasets}
+    mode = suite.extra.get("sample_size_mode")
+    if mode == AUTO_SCALING:
+        return {dataset: scaling_sample_sizes(dataset) for dataset in suite.datasets}
+    if mode == FULL_POOL:
+        return {dataset: scaling_sample_sizes(dataset)[-1:] for dataset in suite.datasets}
+    return suite.sample_sizes
 
 
 CORE_METHODS = (
@@ -494,6 +501,20 @@ EXPERIMENT_SUITES: Dict[str, ExperimentSuite] = {
         tuple(name for name in STRONG_BASELINES if name not in CORE_METHODS),
         seeds=SCREENING_SEEDS,
         extra={"sample_size_mode": AUTO_SCALING},
+    ),
+    "mbd-pool-baselines": ExperimentSuite(
+        "mbd-pool-baselines",
+        "The strongest self-supervised baselines pretrained on all ~529k unlabeled MBD "
+        "train-split clients, then adapted on the whole labeled MBD training pool.",
+        ("mbd",),
+        ("classification", "tpp"),
+        ("pragma-mlm", "transaction-mlm", "coles", "autoregressive-transformer"),
+        seeds=SCREENING_SEEDS,
+        extra={"sample_size_mode": FULL_POOL},
+        variants=("pool",),
+        # One epoch over ~529k clients is already ~6x the self-supervised
+        # sequence-passes of the default 3 epochs over the 30,665 labeled ones.
+        variant_extra={"pool": {"pretrain_corpus": "pool", "pretrain_epochs": 1}},
     ),
     "labeled-adaptation-scaling": ExperimentSuite(
         "labeled-adaptation-scaling",
