@@ -1,9 +1,9 @@
 # ETAM: Events and Time As Modalities
 
-Status **2026-10-30**: implemented, unit-tested (15 tests; the full suite passes),
+Status **2026-10-31**: implemented, unit-tested (15 tests; the full suite passes),
 independently reviewed, and parity-checked against the benchmark on real MBD data.
-Phase A is done. In phase B every pretraining run except XL has finished, and the
-fine-tunes are running after a path fix. First results are in [results.md](results.md) and
+Phases A and B are done. In phase B, 161 of 165 tasks finished; XL pretraining ran out of
+GPU memory, so its 3 fine-tunes could not run. Results are in [results.md](results.md) and
 [comparison.md](comparison.md). The code is in `eventfm/etam/` and runs through
 `scripts/etam.py`.
 

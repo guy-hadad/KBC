@@ -9,11 +9,12 @@ RMSE 1.526, time MAE 1.149 (log1p seconds).
 They are regenerated from the run directories by
 `conda run -n KBC python docs/etam/make_comparison.py`; rerun it as cells finish.
 
-## Findings so far (2026-10-30)
+## Findings (2026-10-31, phase B complete)
 
 Test set, 3 fine-tuning seeds, mean ± sd. The reference is the best benchmark method per
 metric at n = 30,665. Every pretrained arm comes from **one** pretraining run (seed 13), so
-the sd covers fine-tuning noise only.
+the sd covers fine-tuning noise only. "Beyond the spread" means the gap exceeds the larger of
+the two arms' sd, the pre-registered rule; with n = 3 it is a screening rule, not a test.
 
 1. **The headline passes its pre-registered rule.** Pool-pretrained ETAM-M (20 epochs),
    fine-tuned as one `multi` model (M1), beats the best baseline on both tasks by more than
@@ -28,15 +29,20 @@ the sd covers fine-tuning noise only.
    | time MAE (lower is better) | 1.122 ± 0.002 | 1.149 ± 0.003 (PRAGMA) | −0.027 |
 
    This does not depend on checkpoint selection. At its final step M1 scores AUC
-   0.7400 ± 0.0033 and next-type accuracy 0.5984 ± 0.0007.
+   0.7400 ± 0.0033 and next-type accuracy 0.5984 ± 0.0007. M1 also beats the
+   pool-pretrained baselines (B1, the rule's second condition): +0.0111 AUC and +0.0113
+   next-type accuracy over PRAGMA + MLM (B1).
 2. **Pretraining is what does it.** The same model trained from scratch (`multi`) only ties
    the baselines: AUC 0.7304 ± 0.0044, next-type accuracy 0.5814 ± 0.0048. Pretraining adds
-   +0.0102 AUC and +0.0163 next-type accuracy.
+   +0.0102 AUC and +0.0163 next-type accuracy. Most of that gain survives pretraining on the
+   30,665 labeled clients alone (item 9).
 3. **Sharing one model costs little.** The specialist fine-tunes (M2) reach AUC
    0.7449 ± 0.0027 (`cls`, +0.0043 over M1) and next-type accuracy 0.5981 ± 0.0002 (`tpp`,
    +0.0005, a tie).
    - The `cls` specialist's AUC needs validation early stopping. It peaks after 2 epochs, and
      its final-step AUC is 0.7105 ± 0.0012.
+   - With the tuned pretraining recipe (item 6) the AUC gap closes: the multitask model
+     reaches 0.7456 ± 0.0021, a tie with the `cls` specialist.
 4. **The frozen embedding is already as good as fine-tuning.** The frozen probe (M3) gives
    test AUC 0.7432 from a logistic regression on `u`, plus zero-shot next-type accuracy
    0.5994 ± 0.0009 from the pretrained heads. Both are at or above M1 (+0.0026 AUC, +0.0018
@@ -53,18 +59,101 @@ the sd covers fine-tuning noise only.
    - Its macro-F1, 0.2172 vs 0.2067, becomes the best of any baseline, but it is still well
      below ETAM's 0.2533.
    - Transaction MLM's macro-F1 also rises, 0.2067 vs 0.2014.
-6. **Caveats that bear on the headline.**
-   - *Pool budget.* B1 gave the baselines one pool epoch of their own objective. ETAM-M got 20
-     pool epochs of an objective that includes TPP itself. A B1 arm with a matched epoch
-     budget has not been run.
-   - *Selection.* ETAM selects on validation; the baselines run a fixed 8 epochs. M1's
-     final-step numbers show this does not matter for the headline, but it does for the `cls`
-     specialist.
-   - *Final step.* With patience 3, "final step" is up to 3 non-improving epochs past the
-     best. It is a pessimistic bound, not the baselines' protocol (see
-     [methodology §6](methodology.md)).
-   - *Open data caveats.* The label-window overlap and the absolute-time features
-     (methodology §6) are still open. The `relonly` fine-tune, which bounds them, is queued.
+6. **Tuning the pretraining recipe raises AUC; tuning the fine-tune recipe does not (H1,
+   H2).**
+   - *H2 alone.* The 24 fine-tune trials score within a narrow validation band: best 1.3305,
+     median 1.3260, against 1.3298 for M1's default recipe. The winner, t13 (LR 1.45e-4,
+     batch 256, dropout 0.2, up to 20 epochs, `p_full` 0.7), was confirmed on M1's
+     checkpoint. It ties M1: AUC 0.7392 ± 0.0038, next-type accuracy 0.5977 ± 0.0013.
+   - *H1 + H2.* The same fine-tune recipe on `pre_final` (H1 winner t6, retrained for 20
+     epochs) gives AUC **0.7456 ± 0.0021**, +0.0050 over M1 and beyond the spread. Next-type
+     accuracy ties, 0.5977 ± 0.0002.
+     - Against the best baseline that is +0.0147 AUC and +0.0117 accuracy. It is the highest
+       test AUC of any arm in the campaign.
+     - At its final step it scores 0.7451 ± 0.0012 and 0.5974 ± 0.0006.
+     - Time errors trade off, each just beyond the spread: MAE improves (1.113 vs 1.122)
+       and RMSE worsens (1.499 vs 1.491). Macro-F1 ties (0.246 ± 0.014 vs 0.253 ± 0.009).
+   - H2 alone changes nothing, so the AUC gain is attributed to the H1 pretraining recipe.
+     `pre_final` with the default fine-tune recipe was not run, so this is an inference.
+   - Every selection used validation only (`test_eval=false` for trials).
+7. **Ablations (A1–A5).** Fine-tuned `multi`, against the 10-epoch reference M10 (AUC
+   0.7409 ± 0.0016, next-type accuracy 0.5952 ± 0.0007):
+   - *A1, experts: kept, for classification.* `deep` beats `shared` by +0.0042 AUC (+0.0034
+     at final step), beyond the spread, which meets the pre-registered rule.
+     - `ffn` alone gets the same gain (+0.0040), so it sits in the FFN experts.
+     - Next-type accuracy does not move (+0.0003).
+   - *A2, time as its own token: passes the rule, but only with what the layout enables.*
+     M10 beats `additive` on both tasks, +0.0039 AUC and +0.0019 accuracy. The controls
+     show where the gain comes from:
+     - With shared weights and no time-conditioned loss (`tokshared_nocond`), the token
+       layout is *worse* than additive on AUC (−0.0059) and ties on accuracy.
+     - Adding the conditioned loss (`shared`) ties additive on AUC and beats it on accuracy
+       (+0.0016). Adding experts (M10) then lifts AUC.
+     - So the gain does not come from the layout by itself. It comes from the
+       time-conditioned objective and the per-modality experts that the layout makes
+       possible.
+   - *A3, time content.* Absolute time carries classification. Relative time carries the
+     prediction of when the next event happens.
+     - `relonly`: AUC −0.0074, accuracy −0.0015, RMSE +0.021, MAE +0.020.
+     - `absonly`: AUC +0.0037 (0.7446 ± 0.0008, higher than with both), accuracy ties, RMSE
+       +0.032, MAE +0.065.
+     - Item 11 covers what this implies for the label-window caveat.
+   - *A4, time RoPE: helps classification.* `ropetime` gives AUC 0.7449 ± 0.0019, +0.0040
+     (+0.0025 at final step), with accuracy and time errors tied. It is a candidate for the
+     default recipe.
+   - *A5, context length is not the source of the gain.* At 64 events (`ev64`,
+     window-relative time as in the baselines' collator), AUC drops by 0.0019 and macro-F1
+     by 0.014. ETAM still beats the best baseline by +0.0081 AUC and +0.0087 accuracy.
+8. **Model scale saturates at M (S1).** Fine-tuned AUC goes 0.7296 (XS) → 0.7360 (S) →
+   0.7409 (M) → 0.7406 (L). Next-type accuracy goes 0.5903 → 0.5944 → 0.5952 → 0.5952. L
+   ties M on both. XL did not run (see Status).
+   - XS has the baselines' width and depth (128/2). It ties the best baseline on AUC
+     (−0.0013) and beats it on next-type accuracy (+0.0043).
+9. **The pool adds little beyond pretraining itself (S2, M4).** At a fixed 20,670
+   pretraining steps:
+   - 10 %, 30 % and 100 % of the pool tie on both tasks after fine-tuning (AUC
+     0.7408 / 0.7399 / 0.7409).
+   - Pretraining on only the 30,665 labeled clients (M4) costs 0.0017 AUC and 0.0025
+     next-type accuracy relative to the full pool, and macro-F1 falls from 0.245 to 0.216.
+   - M4 still beats the best baseline on both tasks, +0.0083 AUC and +0.0067 accuracy, and
+     beats scratch by +0.0088 AUC and +0.0113 accuracy.
+   - So most of ETAM's edge is available at the baselines' *data* budget. Its pretraining
+     *compute* is not matched to theirs (item 11).
+   - The matched `cls` specialist overfits: its final-step AUC is 0.6776 ± 0.0033, against
+     0.7396 ± 0.0076 at the selected checkpoint.
+10. **The LLM backbone adds nothing (L1).** Qwen3-0.6B-Base with LoRA experts, fine-tuned
+    `multi`, ties M10 on AUC (0.7388 ± 0.0033, −0.0021) and next-type accuracy (0.5948,
+    −0.0004).
+    - Its time errors are worse (RMSE +0.006, MAE +0.009), and it costs 292 pretraining
+      GPU-minutes against M10's 58.
+    - Its average precision, 0.0363 ± 0.0008, is the highest of any arm (M1: 0.0328).
+11. **Caveats that bear on the headline.**
+    - *Pretraining budget.* B1 gave the baselines one pool epoch of their own objective.
+      ETAM-M got 20 pool epochs of an objective that includes TPP itself.
+      - Item 9 shows that the pool *data* is not what matters, but pretraining compute is
+        still unmatched. The matched arm runs 20,670 steps on the 30,665 clients.
+      - A B1 arm with a matched step budget has not been run.
+    - *Selection.* ETAM selects on validation; the baselines run a fixed 8 epochs. No
+      multitask arm moves by more than 0.0043 AUC at its final step (the largest is M4,
+      0.7392 → 0.7349). The `cls` specialists depend on selection (items 3 and 9).
+    - *Final step.* With patience 3, "final step" is up to 3 non-improving epochs past the
+      best. It is a pessimistic bound, not the baselines' protocol (see
+      [methodology §6](methodology.md)).
+    - *Absolute time and the label window* (methodology §6). The `relonly` result bounds this
+      only loosely.
+      - Without absolute time, ETAM's AUC edge over the best baseline shrinks from +0.0100
+        (M10) to +0.0026 (0.7335 ± 0.0021), at the edge of the spread. It ties PRAGMA + MLM
+        (B1): +0.0040, with sd 0.0048.
+      - Its next-type accuracy edge mostly survives: +0.0077 of +0.0091.
+      - Dropping relative time instead (`absonly`) raises AUC above the reference, to
+        0.7446. Label-window overlap would produce this pattern, but so would genuine
+        seasonality, and the ablations cannot separate the two.
+      - `relonly` also removes the calendar features (up to day-of-month) that the
+        baselines receive, so it understates what a baseline-matched calendar would score.
+        An arm with exactly the baselines' calendar features would separate the
+        explanations; it has not been run.
+      - **Net:** the TPP gain does not depend on absolute time. Most of the classification
+        gain does, until the label definition is checked.
 
 ### Pretraining-stage signals (validation, zero-shot, one seed each)
 
@@ -76,6 +165,7 @@ tables are in [comparison.md](comparison.md).
   pool (0.5996 vs 0.5994).
   - The 10 % and 30 % subsets have a *lower* joint NLL than the full pool (2.516 and 2.511 vs
     2.542). The gap is driven by time NLL (1.397 and 1.395 vs 1.427), and it is unexplained.
+    After fine-tuning, the three tie (item 9).
 - **Scale.** Joint NLL goes 2.597 (XS) → 2.558 (S) → 2.542 (M) → 2.544 (L): flat beyond M at
   10 epochs. Training M for 20 epochs instead (`pre_main`, 2.523) gives the best full-pool
   run, and the best run on every metric except joint NLL, where the 10 % and 30 % subsets
@@ -86,19 +176,24 @@ tables are in [comparison.md](comparison.md).
   - Experts: deep 2.542, attn_ffn 2.546, ffn 2.549, shared 2.551.
   - Layout: the additive layout (2.561) equals its token-layout control `tokshared_nocond`
     (2.562).
-  - The A1/A2 pass criteria are judged on the fine-tuned test results, which are queued.
+  - Pretraining NLL does not predict the fine-tuned ranking. `absonly` (2.565) and
+    `ropetime` (2.544) are no better than M10 on NLL, yet they are the two best ablations on
+    test AUC (item 7).
 - **LLM backbone (L1).** Qwen3-0.6B-Base with LoRA experts reaches 2.559 after 292 GPU-min.
   ETAM-M10 reaches 2.542 in 58 GPU-min.
 - **Pretraining HPO (H1).** The best trial is t6: LR 3.3e-4, batch 256, dropout 0, weights
   future 2 / cond-feature 1 / user-next 0.5. It scores validation probe AUC 0.7335 and
-  zero-shot next-type accuracy 0.6015. Its 20-epoch retrain (`pre_final`) is queued.
+  zero-shot next-type accuracy 0.6015.
+  - Its 20-epoch retrain, `pre_final` (118 GPU-min), has the lowest validation joint NLL of
+    any run: 2.476, against 2.523 for `pre_main`. Its next-type accuracy is 0.6032.
+  - Its fine-tuned results are in item 6.
 
 ## Status
 
 | campaign | contents | state |
 |---|---|---|
 | `etam_mbd_phaseA_20261029` | pool build; GPU smoke | done |
-| `etam_mbd_phaseB_20261029` | main, ablations, scale ladders, two-level HPO, pool baselines | 165 tasks: pretraining, scratch, pool baselines, M1–M3 done; other fine-tunes queued (AUTO block below) |
+| `etam_mbd_phaseB_20261029` | main, ablations, scale ladders, two-level HPO, pool baselines | done: 161/165 tasks; XL pretraining and its 3 fine-tunes failed (AUTO block below) |
 
 **Path bug, fixed 2026-10-30.**
 - *Cause.* The campaign driver names each run dir `<group>__<id>` (e.g.
@@ -110,8 +205,8 @@ tables are in [comparison.md](comparison.md).
 - *Fix.* The generator now uses the full names. The re-plan changed only those paths; the
   frozen code snapshot is identical to the tree.
 - *Resubmission.* Jobs 23692671–23692679, plus 23692691 for `pre_final`, which the feeder
-  submitted once its select step had finished. Feeder 23692680 submits the remaining
-  dependent stages and re-harvests the AUTO block.
+  submitted once its select step had finished. Feeder 23692680 submitted the remaining
+  dependent stages. Every resubmitted task finished.
 
 **XL pretraining: out of GPU memory.** `pre_scale__XL` (768/12, batch 256) exhausted the
 48 GB RTX 6000 after 45 s. It was not resubmitted, because fitting it needs a recipe change:
@@ -131,9 +226,9 @@ the AUTO block is hand-written.
 <!-- AUTO:etam_mbd_phaseB_20261029:START -->
 ### etam_mbd_phaseB_20261029
 
-harvested 2026-10-30T08:23:01 · root `/groups/bshapira_group/guyhada/campaigns/etam_mbd_phaseB_20261029` · git `0712fc0` (dirty tree)
+harvested 2026-10-31T20:15:58 · root `/groups/bshapira_group/guyhada/campaigns/etam_mbd_phaseB_20261029` · git `0712fc0` (dirty tree)
 
-**72/165 done** · running 7 · pending 75 · failed 11
+**161/165 done** · failed 4
 
 _Incomplete: tables use finished tasks only; `n` shows finished/planned where they differ._
 
@@ -217,13 +312,38 @@ _mean ± sample std over `seed`._
 
 Fixed: `task=multi`, `seed=13`
 
-_No metrics yet (0/24 done)._
+| trial | hp | valid.score | valid.cls_auc | valid.tpp_next_type_accuracy |
+|---|---|---|---|---|
+| 0 | learning_rate=0.000857 batch_size=64 weight_decay=0.0 model.dropout=0.0 epochs=12 p_full=0.3 weights.cls=2.0 head_learning_rate=0.001 warmup_steps=100 | 1.3155 | 0.7265 | 0.5890 |
+| 1 | learning_rate=0.000252 batch_size=256 weight_decay=0.01 model.dropout=0.3 epochs=20 p_full=0.7 weights.cls=2.0 head_learning_rate=0.001 warmup_steps=300 | 1.3277 | 0.7303 | 0.5974 |
+| 2 | learning_rate=0.000707 batch_size=64 weight_decay=0.05 model.dropout=0.3 epochs=12 p_full=0.5 weights.cls=4.0 head_learning_rate=0.0 warmup_steps=100 | 1.3213 | 0.7338 | 0.5875 |
+| 3 | learning_rate=6.87e-05 batch_size=64 weight_decay=0.01 model.dropout=0.2 epochs=8 p_full=0.3 weights.cls=2.0 head_learning_rate=0.0 warmup_steps=300 | 1.3295 | 0.7285 | 0.6010 |
+| 4 | learning_rate=0.00049 batch_size=256 weight_decay=0.05 model.dropout=0.2 epochs=12 p_full=0.5 weights.cls=1.0 head_learning_rate=0.001 warmup_steps=300 | 1.3283 | 0.7302 | 0.5981 |
+| 5 | learning_rate=0.000298 batch_size=64 weight_decay=0.1 model.dropout=0.2 epochs=20 p_full=0.7 weights.cls=2.0 head_learning_rate=0.001 warmup_steps=300 | 1.3231 | 0.7309 | 0.5921 |
+| 6 | learning_rate=0.000103 batch_size=256 weight_decay=0.1 model.dropout=0.3 epochs=8 p_full=0.5 weights.cls=1.0 head_learning_rate=0.001 warmup_steps=300 | 1.3295 | 0.7293 | 0.6002 |
+| 7 | learning_rate=8.88e-05 batch_size=256 weight_decay=0.1 model.dropout=0.2 epochs=8 p_full=0.5 weights.cls=2.0 head_learning_rate=0.0 warmup_steps=300 | 1.3284 | 0.7281 | 0.6003 |
+| 8 | learning_rate=0.000383 batch_size=64 weight_decay=0.0 model.dropout=0.0 epochs=4 p_full=0.5 weights.cls=1.0 head_learning_rate=0.0 warmup_steps=100 | 1.3260 | 0.7292 | 0.5968 |
+| 9 | learning_rate=0.000599 batch_size=64 weight_decay=0.01 model.dropout=0.0 epochs=20 p_full=0.7 weights.cls=0.5 head_learning_rate=0.0 warmup_steps=300 | 1.3131 | 0.7301 | 0.5831 |
+| 10 | learning_rate=0.000106 batch_size=64 weight_decay=0.0 model.dropout=0.0 epochs=4 p_full=0.3 weights.cls=0.5 head_learning_rate=0.0 warmup_steps=100 | 1.3221 | 0.7225 | 0.5997 |
+| 11 | learning_rate=0.000111 batch_size=64 weight_decay=0.01 model.dropout=0.1 epochs=4 p_full=0.5 weights.cls=0.5 head_learning_rate=0.0 warmup_steps=100 | 1.3250 | 0.7254 | 0.5995 |
+| 12 | learning_rate=0.000903 batch_size=64 weight_decay=0.05 model.dropout=0.0 epochs=12 p_full=0.5 weights.cls=4.0 head_learning_rate=0.0 warmup_steps=300 | 1.3144 | 0.7263 | 0.5881 |
+| 13 | learning_rate=0.000145 batch_size=256 weight_decay=0.0 model.dropout=0.2 epochs=20 p_full=0.7 weights.cls=1.0 head_learning_rate=0.001 warmup_steps=100 | 1.3305 | 0.7308 | 0.5997 |
+| 14 | learning_rate=4.16e-05 batch_size=256 weight_decay=0.05 model.dropout=0.0 epochs=4 p_full=0.5 weights.cls=1.0 head_learning_rate=0.001 warmup_steps=300 | 1.3260 | 0.7252 | 0.6008 |
+| 15 | learning_rate=0.000182 batch_size=64 weight_decay=0.05 model.dropout=0.2 epochs=12 p_full=0.7 weights.cls=4.0 head_learning_rate=0.0 warmup_steps=100 | 1.3274 | 0.7305 | 0.5969 |
+| 16 | learning_rate=0.000315 batch_size=128 weight_decay=0.0 model.dropout=0.1 epochs=8 p_full=0.3 weights.cls=0.5 head_learning_rate=0.001 warmup_steps=100 | 1.3238 | 0.7253 | 0.5985 |
+| 17 | learning_rate=0.000178 batch_size=256 weight_decay=0.0 model.dropout=0.1 epochs=8 p_full=0.7 weights.cls=4.0 head_learning_rate=0.0 warmup_steps=300 | 1.3288 | 0.7295 | 0.5993 |
+| 18 | learning_rate=3.98e-05 batch_size=64 weight_decay=0.05 model.dropout=0.2 epochs=20 p_full=0.5 weights.cls=0.5 head_learning_rate=0.0 warmup_steps=100 | 1.3299 | 0.7293 | 0.6006 |
+| 19 | learning_rate=0.000116 batch_size=64 weight_decay=0.0 model.dropout=0.0 epochs=8 p_full=0.3 weights.cls=0.5 head_learning_rate=0.0 warmup_steps=100 | 1.3273 | 0.7270 | 0.6003 |
+| 20 | learning_rate=0.000417 batch_size=64 weight_decay=0.01 model.dropout=0.0 epochs=20 p_full=0.5 weights.cls=2.0 head_learning_rate=0.001 warmup_steps=100 | 1.3226 | 0.7310 | 0.5916 |
+| 21 | learning_rate=0.000331 batch_size=64 weight_decay=0.1 model.dropout=0.3 epochs=4 p_full=0.7 weights.cls=0.5 head_learning_rate=0.001 warmup_steps=100 | 1.3273 | 0.7293 | 0.5979 |
+| 22 | learning_rate=0.000757 batch_size=256 weight_decay=0.1 model.dropout=0.2 epochs=4 p_full=0.7 weights.cls=0.5 head_learning_rate=0.001 warmup_steps=300 | 1.3266 | 0.7287 | 0.5978 |
+| 23 | learning_rate=0.000338 batch_size=128 weight_decay=0.05 model.dropout=0.0 epochs=20 p_full=0.3 weights.cls=0.5 head_learning_rate=0.001 warmup_steps=100 | 1.3208 | 0.7242 | 0.5966 |
 
 #### hpo_ft_select
 
 Fixed: `stage=finetune`
 
-_No metrics yet (0/1 done)._
+_No metrics yet (1/1 done)._
 
 #### hpo_pre_select
 
@@ -235,33 +355,71 @@ _No metrics yet (1/1 done)._
 
 Fixed: `size=M`
 
-_No metrics yet (0/1 done)._
+| task | valid.next_type_accuracy | valid.next_type_macro_f1 | valid.delta_log_rmse | valid.delta_log_mae | valid.joint_nll | train_minutes |
+|---|---|---|---|---|---|---|
+| pre_final__pre_final | 0.6032 | 0.2709 | 1.4892 | 1.1222 | 2.4756 | 117.7 |
 
 #### confirm
 
-_No metrics yet (0/6 done)._
+| init | classification.auc | tpp.next_type_accuracy | tpp.next_type_macro_f1 | tpp.delta_log_rmse | tpp.delta_log_mae | valid.score | n |
+|---|---|---|---|---|---|---|---|
+| pre_main | 0.7392 ± 0.0038 | 0.5977 ± 0.0013 | 0.2527 ± 0.0060 | 1.4943 ± 0.0041 | 1.1146 ± 0.0063 | 1.3306 ± 0.0028 | 3 |
+| pre_final | 0.7456 ± 0.0021 | 0.5977 ± 0.0002 | 0.2459 ± 0.0142 | 1.4986 ± 0.0073 | 1.1132 ± 0.0073 | 1.3304 ± 0.0033 | 3 |
+
+_mean ± sample std over `seed`._
 
 #### ft_ablate
 
 Fixed: `task=multi`
 
-_No metrics yet (0/30 done)._
+| variant | ftx | classification.auc | tpp.next_type_accuracy | tpp.next_type_macro_f1 | tpp.delta_log_rmse | tpp.delta_log_mae | valid.score | n |
+|---|---|---|---|---|---|---|---|---|
+| M10 |  | 0.7409 ± 0.0016 | 0.5952 ± 0.0007 | 0.2451 ± 0.0095 | 1.4948 ± 0.0020 | 1.1279 ± 0.0041 | 1.3244 ± 0.0034 | 3 |
+| shared |  | 0.7367 ± 0.0015 | 0.5949 ± 0.0007 | 0.2471 ± 0.0027 | 1.4957 ± 0.0031 | 1.1246 ± 0.0008 | 1.3260 ± 0.0031 | 3 |
+| ffn |  | 0.7407 ± 0.0015 | 0.5950 ± 0.0011 | 0.2450 ± 0.0078 | 1.4957 ± 0.0013 | 1.1295 ± 0.0070 | 1.3255 ± 0.0014 | 3 |
+| attn_ffn |  | 0.7407 ± 0.0012 | 0.5958 ± 0.0014 | 0.2463 ± 0.0051 | 1.4934 ± 0.0026 | 1.1246 ± 0.0009 | 1.3278 ± 0.0029 | 3 |
+| additive |  | 0.7370 ± 0.0002 | 0.5933 ± 0.0009 | 0.2406 ± 0.0025 | 1.4969 ± 0.0010 | 1.1318 ± 0.0046 | 1.3198 ± 0.0007 | 3 |
+| relonly |  | 0.7335 ± 0.0021 | 0.5937 ± 0.0001 | 0.2434 ± 0.0021 | 1.5157 ± 0.0027 | 1.1475 ± 0.0032 | 1.3287 ± 0.0010 | 3 |
+| absonly |  | 0.7446 ± 0.0008 | 0.5954 ± 0.0012 | 0.2401 ± 0.0147 | 1.5264 ± 0.0104 | 1.1923 ± 0.0151 | 1.3254 ± 0.0022 | 3 |
+| ropetime |  | 0.7449 ± 0.0019 | 0.5954 ± 0.0006 | 0.2441 ± 0.0035 | 1.4936 ± 0.0024 | 1.1254 ± 0.0032 | 1.3247 ± 0.0020 | 3 |
+| ev64 | max_events=64 window_time=true | 0.7390 ± 0.0004 | 0.5947 ± 0.0016 | 0.2315 ± 0.0042 | 1.5040 ± 0.0011 | 1.1368 ± 0.0045 | 1.3210 ± 0.0025 | 3 |
+| tokshared_nocond | 'objectives=["cls","tpp","user"]' | 0.7312 ± 0.0011 | 0.5938 ± 0.0017 | 0.2489 ± 0.0042 | 1.4957 ± 0.0012 | 1.1288 ± 0.0033 | 1.3241 ± 0.0010 | 3 |
+
+_mean ± sample std over `seed`._
 
 #### ft_scale_small
 
 Fixed: `task=multi`
 
-_No metrics yet (0/6 done)._
+| size | classification.auc | tpp.next_type_accuracy | tpp.next_type_macro_f1 | tpp.delta_log_rmse | tpp.delta_log_mae | valid.score | n |
+|---|---|---|---|---|---|---|---|
+| XS | 0.7296 ± 0.0004 | 0.5903 ± 0.0012 | 0.2366 ± 0.0060 | 1.5023 ± 0.0019 | 1.1345 ± 0.0057 | 1.3203 ± 0.0033 | 3 |
+| S | 0.7360 ± 0.0024 | 0.5944 ± 0.0016 | 0.2503 ± 0.0074 | 1.4962 ± 0.0017 | 1.1274 ± 0.0050 | 1.3278 ± 0.0016 | 3 |
+
+_mean ± sample std over `seed`._
 
 #### ft_scale_large
 
 Fixed: `task=multi`
 
-_No metrics yet (0/6 done)._
+| size | classification.auc | tpp.next_type_accuracy | tpp.next_type_macro_f1 | tpp.delta_log_rmse | tpp.delta_log_mae | valid.score | n |
+|---|---|---|---|---|---|---|---|
+| L | 0.7406 ± 0.0016 | 0.5952 ± 0.0012 | 0.2425 ± 0.0023 | 1.4953 ± 0.0016 | 1.1314 ± 0.0049 | 1.3290 ± 0.0019 | 3 |
+| XL | – | – | – | – | – | – | 0/3 |
+
+_mean ± sample std over `seed`._
 
 #### ft_data
 
-_No metrics yet (0/15 done)._
+| data | task | classification.auc | tpp.next_type_accuracy | tpp.next_type_macro_f1 | tpp.delta_log_rmse | tpp.delta_log_mae | valid.score | n |
+|---|---|---|---|---|---|---|---|---|
+| matched | multi | 0.7392 ± 0.0006 | 0.5927 ± 0.0013 | 0.2155 ± 0.0105 | 1.4964 ± 0.0015 | 1.1282 ± 0.0013 | 1.3215 ± 0.0041 | 3 |
+| matched | cls | 0.7396 ± 0.0076 | – | – | – | – | 0.7303 ± 0.0033 | 3 |
+| matched | tpp | – | 0.5939 ± 0.0010 | 0.2207 ± 0.0122 | 1.4943 ± 0.0019 | 1.1264 ± 0.0015 | -2.6262 ± 0.0060 | 3 |
+| pool10pct | multi | 0.7408 ± 0.0018 | 0.5949 ± 0.0017 | 0.2456 ± 0.0063 | 1.4949 ± 0.0018 | 1.1268 ± 0.0050 | 1.3238 ± 0.0028 | 3 |
+| pool30pct | multi | 0.7399 ± 0.0011 | 0.5956 ± 0.0014 | 0.2450 ± 0.0090 | 1.4939 ± 0.0017 | 1.1258 ± 0.0046 | 1.3246 ± 0.0016 | 3 |
+
+_mean ± sample std over `seed`._
 
 #### ft_scratch
 
@@ -285,7 +443,11 @@ Fixed: `size=qwen0.6b`
 
 Fixed: `task=multi`
 
-_No metrics yet (0/3 done)._
+| classification.auc | tpp.next_type_accuracy | tpp.next_type_macro_f1 | tpp.delta_log_rmse | tpp.delta_log_mae | valid.score | n |
+|---|---|---|---|---|---|---|
+| 0.7388 ± 0.0033 | 0.5948 ± 0.0010 | 0.2426 ± 0.0064 | 1.5009 ± 0.0026 | 1.1372 ± 0.0040 | 1.3287 ± 0.0011 | 3 |
+
+_mean ± sample std over `seed`._
 
 #### baselines_pool
 
@@ -316,37 +478,14 @@ _No metrics yet (0/3 done)._
 | 22 | – | 0.5859 | 0.2187 | 1.5238 | 1.1514 |
 | 23 | – | 0.5848 | 0.2148 | 1.5281 | 1.1571 |
 
-#### Not done (93)
+#### Not done (4)
 
 | task | state | exit | node | elapsed | log |
 |---|---|---|---|---|---|
 | pre_scale_large__pre_scale__XL | failed | 1 | ise-6000-04 | 00:00:45 | `runs/pre_scale_large__pre_scale__XL/task.log` |
-| hpo_ft__hpo_ft__t0 | running |  | ise-4090-20 |  |  |
-| hpo_ft__hpo_ft__t1 | running |  | ise-4090-19 |  |  |
-| hpo_ft__hpo_ft__t2 | running |  | cs-4090-07 |  |  |
-| hpo_ft__hpo_ft__t3 | running |  | ise-4090-16 |  |  |
-| hpo_ft__hpo_ft__t4 | running |  | ise-4090-18 |  |  |
-| hpo_ft__hpo_ft__t5 | running |  | ise-4090-19 |  |  |
-| hpo_ft__hpo_ft__t6 | running |  | ise-4090-19 |  |  |
-| hpo_ft__hpo_ft__t7 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t8 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t9 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t10 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t11 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t12 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t13 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t14 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t15 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t16 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t17 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t18 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t19 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t20 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t21 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t22 | pending |  |  |  |  |
-| hpo_ft__hpo_ft__t23 | pending |  |  |  |  |
-
-_… 68 more in `failed.txt` / `results.csv`._
+| ft_scale_large__ft_scale__XL_s13 | failed | 1 | ise-cpu256-28 | 00:00:18 | `runs/ft_scale_large__ft_scale__XL_s13/task.log` |
+| ft_scale_large__ft_scale__XL_s29 | failed | 1 | ise-cpu256-28 | 00:00:17 | `runs/ft_scale_large__ft_scale__XL_s29/task.log` |
+| ft_scale_large__ft_scale__XL_s43 | failed | 1 | ise-6000-08 | 00:00:31 | `runs/ft_scale_large__ft_scale__XL_s43/task.log` |
 
 Per-task data (every metric, every state): `results.csv`.
 <!-- AUTO:etam_mbd_phaseB_20261029:END -->
