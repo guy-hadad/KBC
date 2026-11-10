@@ -1,0 +1,45 @@
+# ETAM-2 transfer to public event datasets with different temporal regimes:
+# Synthea (synthetic EHR, 65 marks, a prospective adverse-event label) and Stack
+# Overflow (25 badge marks, TPP only). ETAM-2 (reference config) and Stage 1 are
+# each pretrained from scratch on the dataset's training split (3 seeds) and
+# scored with the Stage 2 battery (zero-shot TPP on the benchmark-replayed test
+# prefixes; frozen label probe on Synthea).
+name: etam2_transfer_20261108
+workdir: /groups/bshapira_group/guyhada/KBC
+snapshot: [eventfm, scripts]
+setup: |
+  source "$(conda info --base)/etc/profile.d/conda.sh"
+  conda activate KBC
+  export KBC_DATA_ROOT=/groups/bshapira_group/guyhada/KBC_data
+  export KBC_OUTPUT_ROOT=/groups/bshapira_group/guyhada/KBC_outputs
+defaults: {kind: cpu, cpus: 8, mem: 32G, time: "6:00:00"}
+groups:
+  - name: stores
+    resources: {kind: cpu, cpus: 4, mem: 64G, time: "4:00:00"}
+    grid: {what: [public]}
+    command: >-
+      python {code_dir}/scripts/etam2_public_stores.py --result {run_dir}/result.json
+  - name: etam2
+    after: [stores]
+    resources: {kind: gpu, gpus: 1, constraint: "rtx_6000", mem: 44G, time: "1-00:00:00", gpu_check: torch}
+    grid:
+      - {dataset: synthea, args: "--run 'syn_s13::stage=pretrain dataset=synthea pretrain_store=train batch_size=128 grad_accum=2 learning_rate=6e-4 max_steps=7290 warmup_steps=700 eval_every=1458 val_users=10000 seed=13' --run 'syn_s29::stage=pretrain dataset=synthea pretrain_store=train batch_size=128 grad_accum=2 learning_rate=6e-4 max_steps=7290 warmup_steps=700 eval_every=1458 val_users=10000 seed=29' --run 'syn_s43::stage=pretrain dataset=synthea pretrain_store=train batch_size=128 grad_accum=2 learning_rate=6e-4 max_steps=7290 warmup_steps=700 eval_every=1458 val_users=10000 seed=43'"}
+      - {dataset: stackoverflow, args: "--run 'so_s13::stage=pretrain dataset=stackoverflow pretrain_store=train batch_size=128 grad_accum=2 learning_rate=6e-4 max_steps=912 warmup_steps=90 eval_every=182 val_users=0 seed=13' --run 'so_s29::stage=pretrain dataset=stackoverflow pretrain_store=train batch_size=128 grad_accum=2 learning_rate=6e-4 max_steps=912 warmup_steps=90 eval_every=182 val_users=0 seed=29' --run 'so_s43::stage=pretrain dataset=stackoverflow pretrain_store=train batch_size=128 grad_accum=2 learning_rate=6e-4 max_steps=912 warmup_steps=90 eval_every=182 val_users=0 seed=43'"}
+    command: >-
+      python {code_dir}/scripts/etam2_bundle.py --out {run_dir} {args}
+  - name: stage1
+    after: [stores]
+    resources: {kind: gpu, gpus: 1, constraint: "rtx_4090|rtx_6000", mem: 32G, time: "12:00:00", gpu_check: torch}
+    grid:
+      - {dataset: synthea, seed: 13, steps: 7290, every: 1458}
+      - {dataset: synthea, seed: 29, steps: 7290, every: 1458}
+      - {dataset: synthea, seed: 43, steps: 7290, every: 1458}
+      - {dataset: stackoverflow, seed: 13, steps: 912, every: 182}
+      - {dataset: stackoverflow, seed: 29, steps: 912, every: 182}
+      - {dataset: stackoverflow, seed: 43, steps: 912, every: 182}
+    command: >-
+      python {code_dir}/scripts/etam.py run stage=pretrain dataset={dataset} pretrain_store=train batch_size=256
+      learning_rate=6e-4 warmup_steps=200 weight_decay=0.05 max_steps={steps} eval_every={every} val_users=10000
+      num_workers=5 write_results=false seed={seed} run_name=etam output_dir={run_dir} &&
+      python {code_dir}/scripts/etam2.py run stage=evaluate dataset={dataset} init_checkpoint={run_dir}/etam/best.pt
+      seed={seed} run_name=r output_dir={run_dir} result_path={run_dir}/result.json

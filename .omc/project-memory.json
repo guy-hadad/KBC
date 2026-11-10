@@ -1,0 +1,173 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1794327393435,
+  "projectRoot": "/groups/bshapira_group/guyhada/KBC",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml",
+          "requirements.txt"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": "pip",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "pytest",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "scripts",
+      "tests"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "configs": {
+      "path": "configs",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1794327393425,
+      "keyFiles": [
+        "config.yaml"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1794327393425,
+      "keyFiles": [
+        "README.md",
+        "benchmark_design.md"
+      ]
+    },
+    "eventfm": {
+      "path": "eventfm",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1794327393426,
+      "keyFiles": [
+        "__init__.py"
+      ]
+    },
+    "eventfm.egg-info": {
+      "path": "eventfm.egg-info",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1794327393428,
+      "keyFiles": [
+        "PKG-INFO",
+        "SOURCES.txt",
+        "dependency_links.txt",
+        "requires.txt",
+        "top_level.txt"
+      ]
+    },
+    "outputs": {
+      "path": "outputs",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1794327393429,
+      "keyFiles": []
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 25,
+      "lastAccessed": 1794327393430,
+      "keyFiles": [
+        "aggregate_results.py",
+        "analyze_temporal_tokenizers.py",
+        "build_mbd_pool.py",
+        "build_mbd_stage2_data.py",
+        "cell_result.py"
+      ]
+    },
+    "slurm": {
+      "path": "slurm",
+      "purpose": null,
+      "fileCount": 13,
+      "lastAccessed": 1794327393430,
+      "keyFiles": [
+        "prepare_paper_data.sbatch",
+        "prepare_scale_data.sbatch",
+        "probe_scale_memory.sbatch",
+        "release_deferred_gpu.sbatch",
+        "run_benchmark_array.sbatch"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 16,
+      "lastAccessed": 1794327393431,
+      "keyFiles": [
+        "test_benchmark_grid.py",
+        "test_collator_smoke.py",
+        "test_etam.py",
+        "test_etam2.py",
+        "test_etam2_baselines.py"
+      ]
+    },
+    "configs/data": {
+      "path": "configs/data",
+      "purpose": "Data files",
+      "fileCount": 1,
+      "lastAccessed": 1794327393432,
+      "keyFiles": [
+        "synthetic.yaml"
+      ]
+    },
+    "eventfm/data": {
+      "path": "eventfm/data",
+      "purpose": "Data files",
+      "fileCount": 12,
+      "lastAccessed": 1794327393433,
+      "keyFiles": [
+        "__init__.py",
+        "collator.py",
+        "dataset.py"
+      ]
+    },
+    "eventfm/models": {
+      "path": "eventfm/models",
+      "purpose": "Data models",
+      "fileCount": 7,
+      "lastAccessed": 1794327393434,
+      "keyFiles": [
+        "__init__.py",
+        "configuration_flat.py",
+        "configuration_pragma.py"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

@@ -516,6 +516,34 @@ EXPERIMENT_SUITES: Dict[str, ExperimentSuite] = {
         # sequence-passes of the default 3 epochs over the 30,665 labeled ones.
         variant_extra={"pool": {"pretrain_corpus": "pool", "pretrain_epochs": 1}},
     ),
+    # ETAM Stage 2, P0: the label window starts in Sep 2022, so these rerun the
+    # strongest baselines with histories cut before 2022-09-01 (strictly
+    # prospective; `scripts/build_mbd_stage2_data.py`), with and without pool
+    # pretraining. `processed/mbd_strict/pool_train.jsonl` links to the MBD pool.
+    "mbd-strict-baselines": ExperimentSuite(
+        "mbd-strict-baselines",
+        "Strongest baselines on strictly prospective MBD histories (cut before the label window).",
+        ("mbd_strict",),
+        ("classification",),
+        ("pragma-mlm", "transaction-mlm", "coles", "autoregressive-transformer"),
+        seeds=SCREENING_SEEDS,
+        extra={"sample_size_mode": FULL_POOL},
+        variants=("default", "pool"),
+        variant_extra={"pool": {"pretrain_corpus": "pool", "pretrain_epochs": 1}},
+    ),
+    # ETAM Stage 2, P0: pool pretraining with the sequence exposure of ETAM-M10
+    # (10 pool epochs) for the best baseline per task.
+    "mbd-pool-baselines-matched": ExperimentSuite(
+        "mbd-pool-baselines-matched",
+        "Best baselines pretrained for 10 pool epochs (ETAM-M10's sequence exposure).",
+        ("mbd",),
+        ("classification", "tpp"),
+        ("pragma-mlm", "autoregressive-transformer"),
+        seeds=SCREENING_SEEDS,
+        extra={"sample_size_mode": FULL_POOL},
+        variants=("pool10",),
+        variant_extra={"pool10": {"pretrain_corpus": "pool", "pretrain_epochs": 10}},
+    ),
     "labeled-adaptation-scaling": ExperimentSuite(
         "labeled-adaptation-scaling",
         "Nested target-label sizes after a fixed-size in-domain self-supervised stage.",

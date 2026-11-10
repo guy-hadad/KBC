@@ -232,6 +232,18 @@ for _base_name, _chronological_name in zip(PRIMARY_DATASETS, CHRONOLOGICAL_DATAS
         adapter=_base_name,
     )
 
+# `mbd` with every history cut strictly before 2022-09-01, so no observed event
+# falls inside a label month. Same users (minus those left with fewer than two
+# events), order and labels. Written by scripts/build_mbd_stage2_data.py, not by
+# an adapter.
+DATASET_REGISTRY["mbd_strict"] = replace(
+    DATASET_REGISTRY["mbd"],
+    name="mbd_strict",
+    display_name="MBD (full, strict-prospective history < 2022-09-01)",
+    label="product-propensity target shipped with the benchmark; history ends before its window",
+    config=replace(DATASET_REGISTRY["mbd"].config),
+)
+
 
 @dataclass
 class DatasetMeta:

@@ -1,0 +1,25 @@
+# ETAM-2 CPU preparation: the Stage 2 data build (raw amounts aligned to the stores,
+# strict-prospective stores and JSONL, all four MBD targets) and a CPU throughput
+# benchmark (seconds per training step at batch 256) for 16 and 32 cores.
+name: etam2_cpuprep_20261108
+workdir: /groups/bshapira_group/guyhada/KBC
+snapshot: [eventfm, scripts]
+setup: |
+  source "$(conda info --base)/etc/profile.d/conda.sh"
+  conda activate KBC
+  export KBC_DATA_ROOT=/groups/bshapira_group/guyhada/KBC_data
+  export KBC_OUTPUT_ROOT=/groups/bshapira_group/guyhada/KBC_outputs
+  export POLARS_MAX_THREADS=8
+  unset KBC_MBD_MAX_CLIENTS
+defaults: {kind: cpu, cpus: 8, mem: 48G, time: "3:00:00"}
+groups:
+  - name: data
+    resources: {kind: cpu, cpus: 8, mem: 64G, time: "4:00:00"}
+    grid: {what: [stage2]}
+    command: >-
+      python {code_dir}/scripts/build_mbd_stage2_data.py --result {run_dir}/result.json
+  - name: cpubench
+    resources: {kind: cpu, cpus: 32, mem: 32G, time: "3:00:00"}
+    grid: {cores: [16, 32]}
+    command: >-
+      OMP_NUM_THREADS={cores} MKL_NUM_THREADS={cores} python {code_dir}/scripts/etam2_cpubench.py --out {run_dir}/result.json

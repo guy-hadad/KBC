@@ -2,6 +2,7 @@
 
 | Page | What it is |
 | --- | --- |
+| [etam/stage2/results.md](etam/stage2/results.md) | ETAM-2: all available Stage 2 results, methodology, positive and negative findings, and analysis. |
 | [benchmark_design.md](benchmark_design.md) | **Read first.** Why the datasets are shaped the way they are, how the two labels are defined, and what is held fixed so the architectures are actually comparable. |
 | [research/README.md](research/README.md) | **Paper roadmap.** Research question, evidence bar, and index of the paper-facing specifications. |
 | [research/method_catalog.md](research/method_catalog.md) | Unified catalog of current methods, required baselines, recent banking models, and implementation priorities. |

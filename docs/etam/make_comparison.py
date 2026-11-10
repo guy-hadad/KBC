@@ -1,4 +1,7 @@
-"""Write comparison.md: ETAM on full MBD against the strongest benchmark baselines.
+"""Write the Stage 1 comparison tables (ETAM vs the strongest baselines) into results.md.
+
+The tables go into the ``AUTO:stage1_comparison`` block of results.md (they used to be
+a separate comparison.md). Stage 2 has its own five Markdown files under stage2/.
 
 Reads the benchmark's published ``../benchmark_scale/results.csv`` (MBD at
 n = 30,665) and the phase-B campaign's run directories, so it can be rerun as
@@ -21,7 +24,8 @@ from eventfm.methods import METHOD_REGISTRY  # noqa: E402
 
 CAMPAIGN = Path("/groups/bshapira_group/guyhada/campaigns/etam_mbd_phaseB_20261029")
 BENCHMARK = HERE.parent / "benchmark_scale" / "results.csv"
-OUT = HERE / "comparison.md"
+OUT = HERE / "results.md"
+START, END = "<!-- AUTO:stage1_comparison:START -->", "<!-- AUTO:stage1_comparison:END -->"
 FULL = "30665"
 SEEDS = 3
 TOP_BASELINES = 8
@@ -438,12 +442,12 @@ def main() -> None:
     bench, pool = benchmark(), pool_baselines()
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     doc = [
-        "# ETAM vs strong baselines on full MBD",
+        "# Stage 1 comparison tables: ETAM vs strong baselines on full MBD",
         "",
         f"Generated {stamp} by `make_comparison.py` from the campaign run directories "
-        f"(`{CAMPAIGN}`) and the benchmark's `../benchmark_scale/results.csv`. Do not edit by "
-        "hand; rerun the script. Commentary is in [results.md](results.md); the protocol is in "
-        "[methodology.md](methodology.md).",
+        f"(`{CAMPAIGN}`) and the benchmark's `../benchmark_scale/results.csv`. This block is "
+        "regenerated; do not edit it by hand. Commentary is in the Stage 1 findings above; the "
+        "protocol is in [methodology.md](methodology.md#part-i-stage-1).",
         "",
         "**How to read the tables.**",
         "",
@@ -514,8 +518,16 @@ def main() -> None:
         *hpo_table(),
         "",
     ]
-    OUT.write_text("\n".join(doc))
-    print(f"wrote {OUT}")
+    # Nest the generated headings under results.md's Stage 1 section.
+    doc = [("##" + line) if line.startswith("#") else line for line in doc]
+    block = "\n".join([START] + doc + [END])
+    text = OUT.read_text()
+    if START in text and END in text:
+        text = text[: text.index(START)] + block + text[text.index(END) + len(END):]
+    else:
+        text = text.rstrip() + "\n\n" + block + "\n"
+    OUT.write_text(text)
+    print(f"wrote the stage1_comparison block of {OUT}")
 
 
 if __name__ == "__main__":

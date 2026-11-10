@@ -1,13 +1,19 @@
-# ETAM: Events and Time As Modalities
+# ETAM: Events and Time As Modalities — Stage 1
 
-Status **2026-10-31**: implemented, unit-tested (15 tests; the full suite passes),
-independently reviewed, and parity-checked against the benchmark on real MBD data.
-Phases A and B are done. In phase B, 161 of 165 tasks finished; XL pretraining ran out of
-GPU memory, so its 3 fine-tunes could not run. Results are in [results.md](results.md) and
-[comparison.md](comparison.md). The code is in `eventfm/etam/` and runs through
-`scripts/etam.py`.
+This file describes Stage 1, the modality-expert model of October 2026.
+Its results and comparison tables are in [results.md](results.md).
 
-## 1. Question
+Stage 2, ETAM-2, is documented in exactly five Markdown files under `stage2/`:
+[methodology](stage2/methodology.md), [positives](stage2/positives.md),
+[negatives](stage2/negatives.md), [analysis](stage2/analysis.md) and
+[results](stage2/results.md).
+
+# Part I: Stage 1
+
+Status **2026-10-31**: implemented and unit-tested; phases A and B done (161 of 165 tasks).
+The code is in `eventfm/etam/` and runs through `scripts/etam.py`.
+
+## I.1. Question
 
 Can **one** event-sequence model, whose user embedding serves both tasks, be at least as
 strong as the best specialist on each task of full MBD? The two tasks are classification
@@ -19,7 +25,7 @@ streams: Mono-InternVL, EVEv2, NEO, Mixture-of-Transformers, and this group's RA
 two soft tokens. Each token type has its own parameters in every layer. The two token types
 meet only in one shared attention softmax.
 
-## 2. The model
+## I.2. The model
 
 ```
 slot i:   τ_i = TimeTok(abs(t_i), rel(t_i − t_{i−1}, t_i − t_first))   ε_i = EventTok(k_i, f_i)
@@ -58,7 +64,7 @@ That is how every baseline in this repo encodes time, at equal width and depth.
 
 Default: hidden 256, 6 layers, 8 heads, SwiGLU 704, dropout 0.1, 10.05 M parameters.
 
-## 3. Objectives
+## I.3. Objectives
 
 | stage | data | losses |
 |---|---|---|
@@ -76,7 +82,7 @@ The label only attaches to full-history views. The future-window target is used 
 `now + 30 d` is at or before the observation cutoff (2022-09-30 for MBD), so it is never
 censored.
 
-## 4. Protocol (parity with the benchmark)
+## I.4. Protocol (parity with the benchmark)
 
 - **Test examples are the benchmark's own.**
   - Classification uses all 40,000 test histories, at natural prevalence (1.14 %).
@@ -107,7 +113,7 @@ censored.
     suite: PRAGMA-MLM, Transaction MLM, CoLES and the autoregressive Transformer; one
     pretraining epoch, then the benchmark recipe).
 
-## 5. Arms
+## I.5. Arms
 
 Reference to beat (benchmark at n = 30,665, 3-seed means): classification AUC **0.731**
 (`pragma-mlm`); TPP next-type accuracy **0.586** (5-way tie), macro-F1 **0.207**, time
@@ -138,7 +144,7 @@ RMSE **1.526**, time MAE **1.149** (log1p seconds).
   tasks at equal width and depth.
 - A1 keeps experts only if `deep` or `ffn` beats `shared` by more than the seed spread.
 
-## 6. Review findings and open caveats (independent review, 2026-10-29)
+## I.6. Review findings and open caveats (independent review, 2026-10-29)
 
 The review found no leakage into any input. Its TPP replay check on real test users also
 found 0 mismatches.
@@ -177,7 +183,7 @@ Open, to read alongside the results:
 - **Unequal selection.** ETAM selects checkpoints and HPO configurations on validation;
   the baselines do not. Both the selected and the final-step numbers are reported.
 
-## 7. Code map
+## I.7. Code map
 
 | file | role |
 |---|---|
